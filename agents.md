@@ -26,7 +26,7 @@
 | 層級 | 平台 | 位置 | 讀取時機 |
 |------|------|------|---------|
 | L1 | 本地（GDrive） | `agents.md`＋`handoff.md` | 每個 session |
-| L2 | GitHub | 未啟用（使用者要切換至其他帳號後再建 private repo "Reservation"） | 指定時 |
+| L2 | GitHub | [shingyong02-sudo/Reservation](https://github.com/shingyong02-sudo/Reservation)（Public，jnfakimo 已加為 collaborator） | 指定時 |
 | L3 | Obsidian | `secondbrain` vault → `Reservation/專案工作流程.md`（已建立） | 有需要時 |
 
 ## 工作約定
