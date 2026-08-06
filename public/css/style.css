@@ -19,6 +19,16 @@ body {
   font-size: var(--text-base);
   line-height: var(--leading-normal);
   overflow-x: hidden;
+  transition: background-image var(--dur-base) var(--ease-standard);
+}
+
+body.page-home,
+body:has(#viewHome:not(.hidden)) {
+  background-image: linear-gradient(rgba(246, 240, 228, 0.90), rgba(246, 240, 228, 0.90)), url('../images/home-bg.png');
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
+  background-repeat: no-repeat;
 }
 
 a { color: var(--gold-700); text-decoration: none; }

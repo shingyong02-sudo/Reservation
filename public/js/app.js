@@ -28,6 +28,7 @@ const VIEWS = { login: "viewLogin", home: "viewHome", booking: "viewBooking", mi
  */
 function navigate(view, state = {}, push = true) {
   Object.entries(VIEWS).forEach(([k, id]) => $(id).classList.toggle("hidden", k !== view));
+  document.body.classList.toggle("page-home", view === "home");
   if (push) history.pushState({ view, ...state }, "", view === "home" ? "#" : `#${view}`);
   window.scrollTo({ top: 0, behavior: "instant" });
 }
