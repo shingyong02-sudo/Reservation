@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>物業後台 — 社區設施預約系統</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="topbar">
+  <h1>🛠️ 物業後台</h1>
+  <div id="headerRight" style="font-size:.85rem; display:flex; align-items:center; gap:10px;">
+    <span id="currentUserLabel"></span>
+    <button class="btn small secondary" id="logoutBtn" style="margin:0;">登出</button>
+  </div>
+</header>
+
+<main>
+  <section id="loginView">
+    <div class="card" style="max-width:360px;margin:40px auto;">
+      <h3>物業登入</h3>
+      <label>Email</label>
+      <input type="email" id="loginEmail">
+      <label>密碼</label>
+      <input type="password" id="loginPassword">
+      <div id="loginAlert"></div>
+      <button class="btn" id="loginBtn">登入</button>
+      <p class="footer-note">尚未有帳號請先於 Firebase Console 的 Authentication 建立管理員帳號</p>
+    </div>
+  </section>
+
+  <section id="appView" class="hidden">
+    <nav class="tabs" style="margin:-16px -16px 16px;">
+      <button id="tab-dashboard" class="active">儀表板</button>
+      <button id="tab-facilities">場地管理</button>
+      <button id="tab-equipment">設備管理</button>
+      <button id="tab-bookings">預約管理</button>
+      <button id="tab-logs">操作紀錄</button>
+    </nav>
+    <div id="view-dashboard"></div>
+    <div id="view-facilities" class="hidden"></div>
+    <div id="view-equipment" class="hidden"></div>
+    <div id="view-bookings" class="hidden"></div>
+    <div id="view-logs" class="hidden"></div>
+  </section>
+</main>
+
+<script type="module" src="js/admin.js"></script>
+</body>
+</html>

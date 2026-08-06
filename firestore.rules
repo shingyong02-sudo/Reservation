@@ -1,0 +1,75 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 既有工作區的測試集合，維持原樣
+    match /test_collection/{document} {
+      allow read, write: if true;
+    }
+
+    // 場地主檔：任何人可讀，僅登入的物業帳號可寫
+    match /facilities/{facilityId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+
+      match /timeSlotTemplates/{slotId} {
+        allow read: if true;
+        allow write: if request.auth != null;
+      }
+
+      match /equipment/{equipmentId} {
+        allow read: if true;
+        allow write: if request.auth != null;
+      }
+    }
+
+    // 時段鎖：doc id = facilityId__date__slotId，靠「同一 id 只能存在一份」防止重複預約
+    match /slotLocks/{lockId} {
+      allow read: if true;
+      allow create: if true;
+      // 已取消的鎖可以被重新佔用；其餘變更（含手動釋出）僅限已登入物業
+      allow update: if request.auth != null
+                    || (resource.data.status == 'cancelled'
+                        && request.resource.data.status in ['confirmed', 'pending_review']);
+      allow delete: if request.auth != null;
+    }
+
+    // 同門牌單日/單週使用量計數器：doc id = facilityId__houseNumber__date(或週一日期)
+    // 只存數字，不含姓名/電話等個資，讓住戶端可在交易內讀寫而不需要列出整個 bookings 集合
+    match /unitDailyUsage/{id} {
+      allow read: if true;
+      allow write: if request.resource.data.keys().hasOnly(['count']) && request.resource.data.count is int;
+    }
+    match /unitWeeklyUsage/{id} {
+      allow read: if true;
+      allow write: if request.resource.data.keys().hasOnly(['count']) && request.resource.data.count is int;
+    }
+
+    // 預約紀錄：doc id = 查詢碼（隨機碼即憑證，不可被列舉）
+    match /bookings/{bookingId} {
+      allow get: if true;
+      allow list: if request.auth != null;
+      allow create: if request.resource.data.keys().hasAll(
+                        ['facilityId', 'date', 'slotId', 'startTime', 'endTime',
+                         'applicantName', 'houseNumber', 'peopleCount', 'status', 'createdAt']
+                      )
+                      && request.resource.data.status in ['confirmed', 'pending_review'];
+      // 住戶憑查詢碼可自行取消（僅能改 status/cancelledAt）；物業登入後可任意調整
+      allow update: if request.auth != null
+                    || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'cancelledAt'])
+                        && request.resource.data.status == 'cancelled');
+      allow delete: if request.auth != null;
+    }
+
+    // 後台操作紀錄：任何寫入動作都可以附加一筆紀錄，但紀錄本身不可篡改
+    match /bookingLogs/{logId} {
+      allow read: if request.auth != null;
+      allow create: if true;
+      allow update, delete: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
