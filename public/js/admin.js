@@ -1,71 +1,80 @@
 import { db, auth } from "./firebase-config.js";
+import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
+import {
+  getAuth, createUserWithEmailAndPassword, sendPasswordResetEmail,
+} from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
 import {
   collection, doc, addDoc, setDoc, updateDoc, deleteDoc,
   getDocs, query, where, orderBy, limit, runTransaction, serverTimestamp,
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 import {
-  onAuthStateChanged, signInWithEmailAndPassword, signOut,
-} from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
-import {
-  todayStr, weekStartOf, slotLockId, escapeHtml, fmtStatus,
-  fmtDateHuman, fmtDateFull, friendlyError, WEEKDAY_LABEL,
+  todayStr, weekStartOf, slotLockId, escapeHtml, fmtStatus, fmtDateHuman, fmtDateFull,
+  friendlyError, WEEKDAY_LABEL, ROLES, roleLabel, isStaffRole, ACTION_LABEL, describeDetail,
 } from "./shared.js";
+import { watchAuth, login, logout, writeLog, canEnterAdmin } from "./auth.js";
 
 const $ = (id) => document.getElementById(id);
+let me = null;
 
 /* ============================================================
-   登入
+   登入與權限閘門
    ============================================================ */
 
-const loginBtn = $("loginBtn");
-loginBtn.addEventListener("click", doLogin);
+$("loginBtn").addEventListener("click", doLogin);
 $("loginPassword").addEventListener("keydown", (e) => { if (e.key === "Enter") doLogin(); });
 
 async function doLogin() {
   const email = $("loginEmail").value.trim();
   const pw = $("loginPassword").value;
   const box = $("loginAlert");
+  const btn = $("loginBtn");
   box.innerHTML = "";
   if (!email || !pw) { box.innerHTML = `<div class="alert error">請輸入帳號與密碼</div>`; return; }
 
-  loginBtn.disabled = true; loginBtn.textContent = "登入中…";
+  btn.disabled = true; btn.textContent = "登入中…";
   try {
-    await signInWithEmailAndPassword(auth, email, pw);
+    const p = await login(email, pw);
+    // 一般住戶不得進入後台
+    if (!canEnterAdmin(p)) {
+      await logout();
+      box.innerHTML = `<div class="alert error">此帳號沒有後台權限。若需使用預約系統，請至<a href="/">住戶預約首頁</a>。</div>`;
+    }
   } catch (err) {
-    // 不區分「帳號不存在」與「密碼錯誤」，避免被用來探測有效的管理員帳號
-    const msg = ["auth/invalid-credential", "auth/wrong-password", "auth/user-not-found", "auth/invalid-email"]
-      .includes(err.code) ? "帳號或密碼錯誤"
+    const msg = err.message === "NO_PROFILE" ? "此帳號尚未完成設定，請洽系統管理員。"
+      : err.message === "ACCOUNT_DISABLED" ? "此帳號已停用。"
+      : ["auth/invalid-credential", "auth/wrong-password", "auth/user-not-found", "auth/invalid-email"].includes(err.code)
+        ? "帳號或密碼錯誤"
       : err.code === "auth/too-many-requests" ? "嘗試次數過多，請稍後再試"
       : `登入失敗：${err.code || err.message}`;
     box.innerHTML = `<div class="alert error">${escapeHtml(msg)}</div>`;
   } finally {
-    loginBtn.disabled = false; loginBtn.textContent = "登入";
+    btn.disabled = false; btn.textContent = "登入";
     $("loginPassword").value = "";
   }
 }
 
-$("logoutBtn").addEventListener("click", () => signOut(auth));
+$("logoutBtn").addEventListener("click", () => logout());
 
-onAuthStateChanged(auth, (user) => {
-  const authed = !!user;
-  $("loginView").classList.toggle("hidden", authed);
-  $("appView").classList.toggle("hidden", !authed);
-  if (authed) { $("currentUserLabel").textContent = user.email; initApp(); }
+watchAuth(({ user, profile }) => {
+  me = profile;
+  const ok = !!user && canEnterAdmin(profile);
+  $("loginView").classList.toggle("hidden", ok);
+  $("appView").classList.toggle("hidden", !ok);
+  if (!ok) return;
+  $("currentUserLabel").textContent = profile.name || profile.email;
+  $("currentRoleLabel").textContent = roleLabel(profile.role);
+  // 帳號管理僅系統管理員可用
+  $("tab-accounts").classList.toggle("hidden", profile.role !== "system_admin");
+  initApp();
 });
 
-const actorTag = () => `property:${auth.currentUser?.email || "unknown"}`;
-
-function logAction(targetType, targetId, action, detail = {}) {
-  addDoc(collection(db, "bookingLogs"), {
-    targetType, targetId, action, actor: actorTag(), detail, timestamp: serverTimestamp(),
-  }).catch(() => {});
-}
+const isSystemAdmin = () => me?.role === "system_admin";
 
 /* ============================================================
    分頁
    ============================================================ */
 
-const TABS = ["dashboard", "bookings", "facilities", "equipment", "notices", "logs"];
+const TABS = ["dashboard", "bookings", "facilities", "equipment", "notices", "accounts", "logs"];
 let inited = false, activeTab = "dashboard";
 
 function initApp() {
@@ -87,11 +96,10 @@ function switchTab(name) {
 function refresh() {
   ({
     dashboard: loadDashboard, bookings: loadBookings, facilities: loadFacilities,
-    equipment: loadEquipment, notices: loadNotices, logs: loadLogs,
+    equipment: loadEquipment, notices: loadNotices, accounts: loadAccounts, logs: loadLogs,
   })[activeTab]();
 }
 
-// 多欄中文表格在手機上放不下，統一包一層可橫向捲動的容器
 const tableWrap = (html) => `<div class="table-wrap">${html}</div>`;
 const errorBox = (err) => `<div class="alert error" role="alert">${escapeHtml(friendlyError(err))}</div>`;
 const head = (title, sub, right = "") => `
@@ -110,9 +118,6 @@ async function loadDashboard() {
   try {
     const facSnap = await getDocs(collection(db, "facilities"));
     const facs = facSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-
-    // 逐場地平行查詢維修中的設備。先前用 collectionGroup 需要額外索引，
-    // 一旦查詢失敗就會靜默顯示「沒有設備維修中」——那正是本系統最不能出錯的一項。
     const [todaySnap, pendingSnap, ...eqSnaps] = await Promise.all([
       getDocs(query(collection(db, "bookings"), where("date", "==", todayStr()))),
       getDocs(query(collection(db, "bookings"), where("status", "==", "pending_review"))),
@@ -123,25 +128,20 @@ async function loadDashboard() {
     const all = todaySnap.docs.map((d) => ({ id: d.id, ...d.data() }));
     const active = all.filter((b) => !["cancelled", "rejected"].includes(b.status))
       .sort((a, b) => (a.startTime || "").localeCompare(b.startTime || ""));
-    const cancelledToday = all.length - active.length;
 
     const maint = [];
     eqSnaps.forEach((s, i) => s.docs.forEach((d) => maint.push({ facility: facs[i].name, ...d.data() })));
-    const blockedFacilities = new Set(maint.filter((m) => m.essential).map((m) => m.facility));
+    const blocked = new Set(maint.filter((m) => m.essential).map((m) => m.facility));
     const closed = facs.filter((f) => f.status === "closed").length;
-
-    // 使用率＝今日已被預約的時段數 ÷（場地數 × 每日時段數）
-    const slotsPerDay = 7;
-    const usage = facs.length ? Math.round(active.length / (facs.length * slotsPerDay) * 100) : 0;
+    const usage = facs.length ? Math.round(active.length / (facs.length * 7) * 100) : 0;
 
     el.innerHTML = head("今日總覽", fmtDateFull(todayStr())) + `
       <div class="stat-row">
         <div class="card stat"><div class="k">今日預約</div><div class="v">${active.length}<span class="unit">筆</span></div></div>
         <div class="card stat gold"><div class="k">時段使用率</div><div class="v">${usage}<span class="unit">%</span></div></div>
-        <div class="card stat"><div class="k">今日取消</div><div class="v">${cancelledToday}<span class="unit">筆</span></div></div>
-        <div class="card stat ${blockedFacilities.size + closed ? "seal" : ""}"><div class="k">暫停開放場地</div><div class="v">${blockedFacilities.size + closed}<span class="unit">處</span></div></div>
+        <div class="card stat"><div class="k">今日取消</div><div class="v">${all.length - active.length}<span class="unit">筆</span></div></div>
+        <div class="card stat ${blocked.size + closed ? "seal" : ""}"><div class="k">暫停開放場地</div><div class="v">${blocked.size + closed}<span class="unit">處</span></div></div>
       </div>
-
       <div class="card">
         <h3>設備維修中警示</h3>
         ${maint.length === 0 ? `<p class="empty">目前沒有設備標記維修中</p>` : tableWrap(`
@@ -151,16 +151,13 @@ async function loadDashboard() {
             <td>${e.essential ? "是（場地停訂）" : "否"}</td><td>${escapeHtml(e.note || "")}</td></tr>`).join("")}
           </tbody></table>`)}
       </div>
-
       <div class="card">
         <h3>今日預約名單</h3>
         ${active.length === 0 ? `<p class="empty">今天目前沒有預約</p>` : tableWrap(`
           <table><thead><tr><th>時段</th><th>場地</th><th>門牌</th><th>住戶</th><th>電話</th><th>狀態</th></tr></thead>
           <tbody>${active.map((b) => `<tr>
-            <td>${escapeHtml(b.slotLabel || `${b.startTime} – ${b.endTime}`)}</td>
-            <td>${escapeHtml(b.facilityName)}</td>
-            <td>${escapeHtml(b.houseNumber)}</td>
-            <td>${escapeHtml(b.applicantName)}</td>
+            <td>${escapeHtml(b.slotLabel || "")}</td><td>${escapeHtml(b.facilityName)}</td>
+            <td>${escapeHtml(b.houseNumber)}</td><td>${escapeHtml(b.applicantName)}</td>
             <td>${escapeHtml(b.phone || "—")}</td>
             <td><span class="badge ${b.status}">${fmtStatus(b.status)}</span></td></tr>`).join("")}
           </tbody></table>`)}
@@ -206,7 +203,6 @@ async function renderBookings() {
       ? query(collection(db, "bookings"), where("status", "==", status), orderBy("date", "desc"), limit(100))
       : query(collection(db, "bookings"), where("date", ">=", todayStr()), orderBy("date", "asc"), limit(100));
     const list = (await getDocs(q)).docs.map((d) => ({ id: d.id, ...d.data() }));
-
     if (!list.length) { box.innerHTML = `<div class="card"><p class="empty">沒有符合條件的預約</p></div>`; return; }
 
     box.innerHTML = `<div class="card">${tableWrap(`
@@ -219,7 +215,7 @@ async function renderBookings() {
         <td>${escapeHtml(b.houseNumber)}</td>
         <td>${escapeHtml(b.applicantName)}<br><span class="sub-text">${escapeHtml(b.phone || "—")}</span></td>
         <td><span class="badge ${b.status}">${fmtStatus(b.status)}</span></td>
-        <td class="action-cell">${actions(b)}</td>
+        <td class="action-cell">${bookingActions(b)}</td>
       </tr>`).join("")}</tbody></table>`)}
       <div id="bkAlert" aria-live="polite"></div></div>`;
 
@@ -229,12 +225,10 @@ async function renderBookings() {
       document.querySelector(`[data-cancel="${b.id}"]`)?.addEventListener("click", () => setStatus(b, "cancelled", "cancel"));
       document.querySelector(`[data-release="${b.id}"]`)?.addEventListener("click", () => releaseSlot(b));
     });
-  } catch (err) {
-    box.innerHTML = errorBox(err);
-  }
+  } catch (err) { box.innerHTML = errorBox(err); }
 }
 
-function actions(b) {
+function bookingActions(b) {
   const out = [];
   if (b.status === "pending_review") {
     out.push(`<button type="button" class="btn primary sm" data-approve="${escapeHtml(b.id)}">核准</button>`);
@@ -258,15 +252,12 @@ async function setStatus(b, newStatus, action) {
       status: releasing ? "cancelled" : newStatus, bookingId: b.id, createdAt: serverTimestamp(),
     });
     if (releasing) {
-      // 一併清掉跨場地佔位與次數額度，否則該戶會被自己的舊預約卡住卻查不出原因
-      await deleteDoc(doc(db, "unitSlotHolds", `${b.houseNumber}__${b.date}__${b.startTime}`)).catch(() => {});
+      await deleteDoc(doc(db, "unitSlotHolds", `${b.uid}__${b.date}__${b.startTime}`)).catch(() => {});
       await refundUsage(b);
     }
-    logAction("booking", b.id, action, { facilityId: b.facilityId, date: b.date });
+    writeLog("booking", b.id, action, { 場地: b.facilityName, 日期: b.date, 門牌: b.houseNumber });
     renderBookings();
-  } catch (err) {
-    $("bkAlert").innerHTML = errorBox(err);
-  }
+  } catch (err) { $("bkAlert").innerHTML = errorBox(err); }
 }
 
 async function releaseSlot(b) {
@@ -275,18 +266,17 @@ async function releaseSlot(b) {
       facilityId: b.facilityId, date: b.date, slotId: b.slotId,
       status: "cancelled", bookingId: b.id, createdAt: serverTimestamp(),
     });
-    await deleteDoc(doc(db, "unitSlotHolds", `${b.houseNumber}__${b.date}__${b.startTime}`)).catch(() => {});
-    logAction("booking", b.id, "release_slot", { facilityId: b.facilityId, date: b.date });
+    await deleteDoc(doc(db, "unitSlotHolds", `${b.uid}__${b.date}__${b.startTime}`)).catch(() => {});
+    writeLog("booking", b.id, "release_slot", { 場地: b.facilityName, 日期: b.date });
     renderBookings();
-  } catch (err) {
-    $("bkAlert").innerHTML = errorBox(err);
-  }
+  } catch (err) { $("bkAlert").innerHTML = errorBox(err); }
 }
 
 async function refundUsage(b) {
+  if (!b.uid) return;
   const refs = [
-    doc(db, "unitDailyUsage", `${b.facilityId}__${b.houseNumber}__${b.date}`),
-    doc(db, "unitWeeklyUsage", `${b.facilityId}__${b.houseNumber}__${weekStartOf(b.date)}`),
+    doc(db, "unitDailyUsage", `${b.facilityId}__${b.uid}__${b.date}`),
+    doc(db, "unitWeeklyUsage", `${b.facilityId}__${b.uid}__${weekStartOf(b.date)}`),
   ];
   await Promise.all(refs.map((ref) => runTransaction(db, async (tx) => {
     const s = await tx.get(ref);
@@ -306,24 +296,27 @@ async function loadFacilities() {
     const list = snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (a.order ?? 99) - (b.order ?? 99));
     const slots = await Promise.all(list.map((f) => getDocs(collection(db, "facilities", f.id, "timeSlotTemplates"))));
 
-    el.innerHTML = head("場地與時段設定", "", `<button type="button" class="btn primary sm" id="addFacilityBtn">＋ 新增場地</button>`)
+    el.innerHTML = head("場地與時段設定", `共 ${list.length} 個場地`,
+      `<button type="button" class="btn primary sm" id="addFacilityBtn">＋ 新增場地</button>`)
       + list.map((f, i) => facilityEditor(f, slots[i].docs.map((d) => ({ id: d.id, ...d.data() })))).join("");
     $("addFacilityBtn").addEventListener("click", addFacility);
-    list.forEach((f) => wireFacility(f.id));
-  } catch (err) {
-    el.innerHTML = head("場地與時段設定", "") + errorBox(err);
-  }
+    list.forEach((f) => wireFacility(f));
+  } catch (err) { el.innerHTML = head("場地與時段設定", "") + errorBox(err); }
 }
 
 function facilityEditor(f, slots) {
   const id = f.id;
   return `<div class="card">
-    <h3>${escapeHtml(f.name)} <span class="doc-id">${escapeHtml(id)}</span></h3>
+    <div class="result-head">
+      <h3 style="margin:0">${escapeHtml(f.name)} <span class="doc-id">${escapeHtml(id)}</span></h3>
+      <button type="button" class="btn danger sm" data-del-fac="${escapeHtml(id)}">刪除場地</button>
+    </div>
     <div class="row">
       <div class="field"><label for="f-name-${id}">名稱</label><input type="text" id="f-name-${id}" value="${escapeHtml(f.name)}"></div>
       <div class="field"><label for="f-capacity-${id}">容納人數（留空＝不限）</label><input type="number" min="0" id="f-capacity-${id}" value="${f.capacity ?? ""}"></div>
-      <div class="field"><label for="f-desc-${id}">簡介</label><input type="text" id="f-desc-${id}" value="${escapeHtml(f.description || "")}" placeholder="例：棋藝對弈與靜態閱讀空間。"></div>
+      <div class="field"><label for="f-order-${id}">顯示順序</label><input type="number" min="1" id="f-order-${id}" value="${f.order ?? 99}"></div>
     </div>
+    <div class="field"><label for="f-desc-${id}">簡介</label><input type="text" id="f-desc-${id}" value="${escapeHtml(f.description || "")}" placeholder="例：棋藝對弈與靜態閱讀空間。"></div>
     <div class="row">
       <div class="field"><label for="f-status-${id}">開放狀態</label>
         <select id="f-status-${id}">
@@ -335,8 +328,8 @@ function facilityEditor(f, slots) {
           <option value="auto" ${f.bookingMode !== "review" ? "selected" : ""}>自動確認</option>
           <option value="review" ${f.bookingMode === "review" ? "selected" : ""}>需物業審核</option>
         </select></div>
-      <div class="field"><label for="f-daily-${id}">同門牌單日上限（0＝不限）</label><input type="number" min="0" id="f-daily-${id}" value="${f.dailyLimitPerUnit ?? 0}"></div>
-      <div class="field"><label for="f-weekly-${id}">同門牌單週上限（0＝不限）</label><input type="number" min="0" id="f-weekly-${id}" value="${f.weeklyLimitPerUnit ?? 0}"></div>
+      <div class="field"><label for="f-daily-${id}">同帳號單日上限（0＝不限）</label><input type="number" min="0" id="f-daily-${id}" value="${f.dailyLimitPerUnit ?? 0}"></div>
+      <div class="field"><label for="f-weekly-${id}">同帳號單週上限（0＝不限）</label><input type="number" min="0" id="f-weekly-${id}" value="${f.weeklyLimitPerUnit ?? 0}"></div>
     </div>
     <button type="button" class="btn primary sm" id="f-save-${id}">儲存場地設定</button>
     <div id="f-alert-${id}" aria-live="polite"></div>
@@ -361,9 +354,11 @@ function facilityEditor(f, slots) {
   </div>`;
 }
 
-function wireFacility(id) {
+function wireFacility(f) {
+  const id = f.id;
   $(`f-save-${id}`).addEventListener("click", () => saveFacility(id));
   $(`ns-add-${id}`).addEventListener("click", () => addSlot(id));
+  document.querySelector(`[data-del-fac="${id}"]`)?.addEventListener("click", () => delFacility(f));
   document.querySelectorAll(`[data-del-slot][data-fac="${id}"]`).forEach((b) =>
     b.addEventListener("click", () => delSlot(id, b.dataset.delSlot)));
 }
@@ -374,17 +369,17 @@ async function saveFacility(id) {
   const name = v("f-name").trim();
   if (!name) { alertEl.innerHTML = `<div class="alert error">場地名稱不可空白</div>`; return; }
   const data = {
-    name,
-    description: v("f-desc").trim(),
+    name, description: v("f-desc").trim(),
     capacity: v("f-capacity") === "" ? null : Number(v("f-capacity")),
+    order: Number(v("f-order")) || 99,
     status: v("f-status"), bookingMode: v("f-mode"),
     dailyLimitPerUnit: Number(v("f-daily")) || 0,
     weeklyLimitPerUnit: Number(v("f-weekly")) || 0,
-    updatedAt: serverTimestamp(), updatedBy: actorTag(),
+    updatedAt: serverTimestamp(),
   };
   try {
     await updateDoc(doc(db, "facilities", id), data);
-    logAction("facility", id, "config_change", { ...data, updatedAt: null });
+    writeLog("facility", id, "config_change", { name, 容納人數: data.capacity, 狀態: data.status, 審核方式: data.bookingMode });
     alertEl.innerHTML = `<div class="alert ok">已儲存</div>`;
     setTimeout(() => { alertEl.innerHTML = ""; }, 3000);
   } catch (err) { alertEl.innerHTML = errorBox(err); }
@@ -399,10 +394,34 @@ async function addFacility() {
   try {
     await setDoc(doc(db, "facilities", id), {
       name, description: "", capacity: null, status: "open", bookingMode: "auto",
-      dailyLimitPerUnit: 1, weeklyLimitPerUnit: 0, order: 99,
-      updatedAt: serverTimestamp(), updatedBy: actorTag(),
+      dailyLimitPerUnit: 1, weeklyLimitPerUnit: 0, order: 99, updatedAt: serverTimestamp(),
     });
-    logAction("facility", id, "config_change", { created: true, name });
+    // 新場地預設補上 08:00–22:00 每 2 小時共 7 段，省去逐一手動建立
+    const slots = ["08:00", "10:00", "12:00", "14:00", "16:00", "18:00", "20:00"];
+    await Promise.all(slots.map((s) => {
+      const end = String(Number(s.slice(0, 2)) + 2).padStart(2, "0") + ":00";
+      return setDoc(doc(db, "facilities", id, "timeSlotTemplates", `t${s.replace(":", "")}`),
+        { startTime: s, endTime: end, weekdays: [1, 2, 3, 4, 5, 6, 7] });
+    }));
+    writeLog("facility", id, "config_change", { 新增: true, name });
+    loadFacilities();
+  } catch (err) { alert(friendlyError(err)); }
+}
+
+async function delFacility(f) {
+  if (!confirm(`確定刪除場地「${f.name}」？\n此動作會一併刪除其時段與設備設定，已存在的預約不會自動取消。`)) return;
+  if (!confirm(`再次確認：刪除「${f.name}」後無法復原。`)) return;
+  try {
+    const [slots, eq] = await Promise.all([
+      getDocs(collection(db, "facilities", f.id, "timeSlotTemplates")),
+      getDocs(collection(db, "facilities", f.id, "equipment")),
+    ]);
+    await Promise.all([
+      ...slots.docs.map((d) => deleteDoc(d.ref)),
+      ...eq.docs.map((d) => deleteDoc(d.ref)),
+    ]);
+    await deleteDoc(doc(db, "facilities", f.id));
+    writeLog("facility", f.id, "facility_delete", { name: f.name });
     loadFacilities();
   } catch (err) { alert(friendlyError(err)); }
 }
@@ -417,8 +436,9 @@ async function addSlot(id) {
   }
   if (endTime <= startTime) { alertEl.innerHTML = `<div class="alert error">結束時間必須晚於開始時間</div>`; return; }
   try {
-    await addDoc(collection(db, "facilities", id, "timeSlotTemplates"), { startTime, endTime, weekdays });
-    logAction("facility", id, "config_change", { addSlot: { startTime, endTime, weekdays } });
+    await setDoc(doc(db, "facilities", id, "timeSlotTemplates", `t${startTime.replace(":", "")}`),
+      { startTime, endTime, weekdays });
+    writeLog("facility", id, "config_change", { 新增時段: `${startTime}–${endTime}` });
     loadFacilities();
   } catch (err) { alertEl.innerHTML = errorBox(err); }
 }
@@ -427,7 +447,7 @@ async function delSlot(facilityId, slotId) {
   if (!confirm("確定刪除此時段？已預約到這個時段的住戶不會被自動取消，需另行處理。")) return;
   try {
     await deleteDoc(doc(db, "facilities", facilityId, "timeSlotTemplates", slotId));
-    logAction("facility", facilityId, "config_change", { deleteSlot: slotId });
+    writeLog("facility", facilityId, "config_change", { 刪除時段: slotId });
     loadFacilities();
   } catch (err) { $(`f-alert-${facilityId}`).innerHTML = errorBox(err); }
 }
@@ -474,7 +494,10 @@ async function loadEqList(facilityId) {
             <option value="retired" ${e.status === "retired" ? "selected" : ""}>已汰除</option>
           </select></td>
           <td><input type="text" id="eq-note-${e.id}" value="${escapeHtml(e.note || "")}" placeholder="故障說明"></td>
-          <td><button type="button" class="btn primary sm" data-save-eq="${escapeHtml(e.id)}">儲存</button></td>
+          <td class="action-cell">
+            <button type="button" class="btn primary sm" data-save-eq="${escapeHtml(e.id)}">儲存</button>
+            <button type="button" class="btn danger sm" data-del-eq="${escapeHtml(e.id)}">刪除</button>
+          </td>
         </tr>`).join("")}</tbody></table>`)}
       <div class="row" style="margin-top:16px">
         <div class="field" style="margin:0"><label for="newEqName">新增設備名稱</label><input type="text" id="newEqName" placeholder="例：跑步機 #3"></div>
@@ -482,22 +505,26 @@ async function loadEqList(facilityId) {
       </div>
       <div id="eqAlert" aria-live="polite"></div>
     </div>`;
-    list.forEach((e) => document.querySelector(`[data-save-eq="${e.id}"]`)
-      .addEventListener("click", () => saveEq(facilityId, e.id)));
+    list.forEach((e) => {
+      document.querySelector(`[data-save-eq="${e.id}"]`).addEventListener("click", () => saveEq(facilityId, e.id, e.name));
+      document.querySelector(`[data-del-eq="${e.id}"]`).addEventListener("click", () => delEq(facilityId, e));
+    });
     $("addEqBtn").addEventListener("click", () => addEq(facilityId));
   } catch (err) { area.innerHTML = errorBox(err); }
 }
 
-async function saveEq(facilityId, eqId) {
+async function saveEq(facilityId, eqId, name) {
   const data = {
     essential: $(`eq-ess-${eqId}`).checked,
     status: $(`eq-st-${eqId}`).value,
     note: $(`eq-note-${eqId}`).value.trim(),
-    updatedAt: serverTimestamp(), updatedBy: actorTag(),
+    updatedAt: serverTimestamp(),
   };
   try {
     await updateDoc(doc(db, "facilities", facilityId, "equipment", eqId), data);
-    logAction("equipment", eqId, "equipment_status_change", { facilityId, ...data, updatedAt: null });
+    writeLog("equipment", eqId, "equipment_status_change", {
+      場地: facilityId, 設備: name, 狀態: data.status, 必要設備: data.essential, 備註: data.note,
+    });
     loadEqList(facilityId);
   } catch (err) { $("eqAlert").innerHTML = errorBox(err); }
 }
@@ -507,10 +534,18 @@ async function addEq(facilityId) {
   if (!name) { $("eqAlert").innerHTML = `<div class="alert error">請輸入設備名稱</div>`; return; }
   try {
     const ref = await addDoc(collection(db, "facilities", facilityId, "equipment"), {
-      name, essential: false, status: "normal", note: "",
-      updatedAt: serverTimestamp(), updatedBy: actorTag(),
+      name, essential: false, status: "normal", note: "", updatedAt: serverTimestamp(),
     });
-    logAction("equipment", ref.id, "equipment_status_change", { facilityId, created: true, name });
+    writeLog("equipment", ref.id, "equipment_status_change", { 場地: facilityId, 新增: true, 設備: name });
+    loadEqList(facilityId);
+  } catch (err) { $("eqAlert").innerHTML = errorBox(err); }
+}
+
+async function delEq(facilityId, e) {
+  if (!confirm(`確定刪除設備「${e.name}」？`)) return;
+  try {
+    await deleteDoc(doc(db, "facilities", facilityId, "equipment", e.id));
+    writeLog("equipment", e.id, "equipment_status_change", { 場地: facilityId, 刪除: true, 設備: e.name });
     loadEqList(facilityId);
   } catch (err) { $("eqAlert").innerHTML = errorBox(err); }
 }
@@ -525,7 +560,6 @@ async function loadNotices() {
   try {
     const snap = await getDocs(query(collection(db, "announcements"), orderBy("date", "desc"), limit(50)));
     const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-
     el.innerHTML = head("公告管理", "住戶端首頁最多顯示 5 則已發布的公告") + `
       <div class="card">
         <h3>新增公告</h3>
@@ -545,7 +579,6 @@ async function loadNotices() {
         <button type="button" class="btn primary" id="addNotice" style="margin-top:16px">新增公告</button>
         <div id="nAlert" aria-live="polite"></div>
       </div>
-
       <div class="card">
         <h3>公告列表</h3>
         ${list.length === 0 ? `<p class="empty">尚無公告</p>` : tableWrap(`
@@ -560,15 +593,12 @@ async function loadNotices() {
               <button type="button" class="btn danger sm" data-del-n="${escapeHtml(n.id)}">刪除</button>
             </td></tr>`).join("")}</tbody></table>`)}
       </div>`;
-
     $("addNotice").addEventListener("click", addNotice);
     list.forEach((n) => {
       document.querySelector(`[data-toggle-n="${n.id}"]`)?.addEventListener("click", () => toggleNotice(n));
       document.querySelector(`[data-del-n="${n.id}"]`)?.addEventListener("click", () => delNotice(n));
     });
-  } catch (err) {
-    el.innerHTML = head("公告管理", "") + errorBox(err);
-  }
+  } catch (err) { el.innerHTML = head("公告管理", "") + errorBox(err); }
 }
 
 async function addNotice() {
@@ -576,23 +606,20 @@ async function addNotice() {
   const box = $("nAlert");
   if (!text) { box.innerHTML = `<div class="alert error">請輸入公告內容</div>`; return; }
   try {
-    await addDoc(collection(db, "announcements"), {
-      tag: $("nTag").value.trim() || "公告",
-      tone: $("nTone").value,
-      date: $("nDate").value || todayStr(),
-      text,
-      published: $("nPublished").checked,
-      createdAt: serverTimestamp(), updatedBy: actorTag(),
+    const ref = await addDoc(collection(db, "announcements"), {
+      tag: $("nTag").value.trim() || "公告", tone: $("nTone").value,
+      date: $("nDate").value || todayStr(), text, published: $("nPublished").checked,
+      createdAt: serverTimestamp(),
     });
-    logAction("announcement", "new", "config_change", { text });
+    writeLog("announcement", ref.id, "config_change", { 新增: true, 內容: text });
     loadNotices();
   } catch (err) { box.innerHTML = errorBox(err); }
 }
 
 async function toggleNotice(n) {
   try {
-    await updateDoc(doc(db, "announcements", n.id), { published: !n.published, updatedBy: actorTag() });
-    logAction("announcement", n.id, "config_change", { published: !n.published });
+    await updateDoc(doc(db, "announcements", n.id), { published: !n.published });
+    writeLog("announcement", n.id, "config_change", { 發布: !n.published, 內容: n.text });
     loadNotices();
   } catch (err) { $("nAlert").innerHTML = errorBox(err); }
 }
@@ -601,37 +628,198 @@ async function delNotice(n) {
   if (!confirm("確定刪除這則公告？")) return;
   try {
     await deleteDoc(doc(db, "announcements", n.id));
-    logAction("announcement", n.id, "config_change", { deleted: true });
+    writeLog("announcement", n.id, "config_change", { 刪除: true, 內容: n.text });
     loadNotices();
   } catch (err) { $("nAlert").innerHTML = errorBox(err); }
 }
 
 /* ============================================================
-   操作紀錄
+   帳號管理（僅系統管理員）
    ============================================================ */
 
-const ACTION_LABEL = {
-  create: "新增預約", cancel: "取消預約", approve: "核准", reject: "拒絕",
-  release_slot: "釋出時段", equipment_status_change: "設備調整", config_change: "設定調整",
-};
+async function loadAccounts() {
+  const el = $("view-accounts");
+  if (!isSystemAdmin()) {
+    el.innerHTML = head("帳號管理", "") + `<div class="card"><p class="empty">僅系統管理員可管理帳號。</p></div>`;
+    return;
+  }
+  el.innerHTML = head("帳號管理", "住戶需有帳號才能預約設施") + `<p class="loading">載入中…</p>`;
+  try {
+    const snap = await getDocs(query(collection(db, "users"), orderBy("houseNumber")));
+    const list = snap.docs.map((d) => ({ uid: d.id, ...d.data() }));
+
+    el.innerHTML = head("帳號管理", `共 ${list.length} 個帳號`) + `
+      <div class="card">
+        <h3>建立帳號</h3>
+        <div class="row">
+          <div class="field"><label for="acEmail">帳號（Email）</label><input type="email" id="acEmail" autocomplete="off"></div>
+          <div class="field"><label for="acPassword">初始密碼（至少 6 碼）</label><input type="text" id="acPassword" autocomplete="off" placeholder="請告知住戶後請其自行更改"></div>
+        </div>
+        <div class="row">
+          <div class="field"><label for="acName">姓名</label><input type="text" id="acName"></div>
+          <div class="field"><label for="acHouse">門牌號碼</label><input type="text" id="acHouse" placeholder="例：A 棟 12 樓之 3"></div>
+          <div class="field"><label for="acPhone">聯絡電話</label><input type="tel" id="acPhone"></div>
+          <div class="field"><label for="acRole">角色</label>
+            <select id="acRole">
+              ${Object.entries(ROLES).map(([k, v]) => `<option value="${k}" ${k === "resident" ? "selected" : ""}>${v}</option>`).join("")}
+            </select></div>
+        </div>
+        <p class="hint">建立後系統會保持您目前的登入狀態；初始密碼請透過其他管道告知住戶，並請其登入後自行更改。</p>
+        <button type="button" class="btn primary" id="createAccount" style="margin-top:12px">建立帳號</button>
+        <div id="acAlert" aria-live="polite"></div>
+      </div>
+
+      <div class="card">
+        <h3>帳號列表</h3>
+        ${list.length === 0 ? `<p class="empty">尚無帳號</p>` : tableWrap(`
+          <table><thead><tr><th>門牌</th><th>姓名</th><th>帳號</th><th>電話</th><th>角色</th><th>狀態</th><th>操作</th></tr></thead>
+          <tbody>${list.map((u) => `<tr class="${u.disabled ? "row-danger" : ""}">
+            <td>${escapeHtml(u.houseNumber || "—")}</td>
+            <td>${escapeHtml(u.name || "—")}</td>
+            <td class="sub-text">${escapeHtml(u.email || "")}</td>
+            <td>${escapeHtml(u.phone || "—")}</td>
+            <td><select id="ur-${u.uid}" ${u.uid === me.uid ? "disabled" : ""}>
+              ${Object.entries(ROLES).map(([k, v]) => `<option value="${k}" ${u.role === k ? "selected" : ""}>${v}</option>`).join("")}
+            </select></td>
+            <td>${u.disabled ? `<span class="badge seal">已停用</span>` : `<span class="badge jade">啟用中</span>`}</td>
+            <td class="action-cell">
+              <button type="button" class="btn primary sm" data-save-u="${escapeHtml(u.uid)}" ${u.uid === me.uid ? "disabled" : ""}>儲存</button>
+              <button type="button" class="btn secondary sm" data-toggle-u="${escapeHtml(u.uid)}" ${u.uid === me.uid ? "disabled" : ""}>${u.disabled ? "啟用" : "停用"}</button>
+              <button type="button" class="btn ghost sm" data-reset-u="${escapeHtml(u.email || "")}">寄重設信</button>
+            </td></tr>`).join("")}</tbody></table>`)}
+        <p class="hint">為避免把自己鎖在系統外，無法修改或停用目前登入中的帳號。</p>
+      </div>`;
+
+    $("createAccount").addEventListener("click", createAccount);
+    list.forEach((u) => {
+      document.querySelector(`[data-save-u="${u.uid}"]`)?.addEventListener("click", () => saveUserRole(u));
+      document.querySelector(`[data-toggle-u="${u.uid}"]`)?.addEventListener("click", () => toggleUser(u));
+      document.querySelector(`[data-reset-u="${u.email}"]`)?.addEventListener("click", () => sendReset(u));
+    });
+  } catch (err) { el.innerHTML = head("帳號管理", "") + errorBox(err); }
+}
+
+async function createAccount() {
+  const box = $("acAlert");
+  const email = $("acEmail").value.trim();
+  const pw = $("acPassword").value;
+  const name = $("acName").value.trim();
+  const house = $("acHouse").value.trim();
+  const phone = $("acPhone").value.trim();
+  const role = $("acRole").value;
+
+  if (!email || !pw) { box.innerHTML = `<div class="alert error">請填寫帳號與初始密碼</div>`; return; }
+  if (pw.length < 6) { box.innerHTML = `<div class="alert error">密碼至少需 6 碼</div>`; return; }
+  if (role === "resident" && !house) { box.innerHTML = `<div class="alert error">住戶帳號必須填寫門牌號碼</div>`; return; }
+
+  const btn = $("createAccount");
+  btn.disabled = true; btn.textContent = "建立中…";
+  // 用第二個 Firebase App 實例建立帳號，
+  // 否則 createUserWithEmailAndPassword 會把目前登入的管理員換成新帳號
+  let secondary = null;
+  try {
+    secondary = initializeApp(db.app.options, `acct-${Date.now()}`);
+    const cred = await createUserWithEmailAndPassword(getAuth(secondary), email, pw);
+    await setDoc(doc(db, "users", cred.user.uid), {
+      email, name, houseNumber: house, phone, role, disabled: false,
+      createdAt: serverTimestamp(), createdBy: me.email,
+    });
+    writeLog("account", cred.user.uid, "account_create", { 帳號: email, 姓名: name, 門牌: house, 角色: roleLabel(role) });
+    ["acEmail", "acPassword", "acName", "acHouse", "acPhone"].forEach((i) => { $(i).value = ""; });
+    box.innerHTML = `<div class="alert ok">帳號已建立：${escapeHtml(email)}</div>`;
+    loadAccounts();
+  } catch (err) {
+    const msg = err.code === "auth/email-already-in-use" ? "此 Email 已被註冊"
+      : err.code === "auth/weak-password" ? "密碼強度不足"
+      : err.code === "auth/invalid-email" ? "Email 格式不正確"
+      : friendlyError(err);
+    box.innerHTML = `<div class="alert error">${escapeHtml(msg)}</div>`;
+  } finally {
+    btn.disabled = false; btn.textContent = "建立帳號";
+    if (secondary) await deleteApp(secondary).catch(() => {});
+  }
+}
+
+async function saveUserRole(u) {
+  const role = $(`ur-${u.uid}`).value;
+  try {
+    await updateDoc(doc(db, "users", u.uid), { role, updatedAt: serverTimestamp() });
+    writeLog("account", u.uid, "account_update", { 帳號: u.email, 角色: roleLabel(role) });
+    loadAccounts();
+  } catch (err) { $("acAlert").innerHTML = errorBox(err); }
+}
+
+async function toggleUser(u) {
+  const next = !u.disabled;
+  if (!confirm(`確定要${next ? "停用" : "啟用"}帳號「${u.email}」？${next ? "\n停用後該帳號將無法登入與預約。" : ""}`)) return;
+  try {
+    await updateDoc(doc(db, "users", u.uid), { disabled: next, updatedAt: serverTimestamp() });
+    writeLog("account", u.uid, "account_update", { 帳號: u.email, 停用: next });
+    loadAccounts();
+  } catch (err) { $("acAlert").innerHTML = errorBox(err); }
+}
+
+async function sendReset(u) {
+  if (!u.email) return;
+  if (!confirm(`寄送密碼重設信到 ${u.email}？`)) return;
+  try {
+    await sendPasswordResetEmail(auth, u.email);
+    writeLog("account", u.uid, "account_update", { 帳號: u.email, 寄送密碼重設信: true });
+    $("acAlert").innerHTML = `<div class="alert ok">已寄出密碼重設信至 ${escapeHtml(u.email)}</div>`;
+  } catch (err) { $("acAlert").innerHTML = errorBox(err); }
+}
+
+/* ============================================================
+   操作紀錄（每 10 筆一頁）
+   ============================================================ */
+
+const LOG_PAGE_SIZE = 10;
+let logCache = [];
+let logPage = 1;
 
 async function loadLogs() {
   const el = $("view-logs");
-  el.innerHTML = head("操作紀錄", "顯示最近 150 筆；紀錄一旦寫入即無法修改或刪除") + `<p class="loading">載入中…</p>`;
+  el.innerHTML = head("操作紀錄", "紀錄一旦寫入即無法修改或刪除") + `<p class="loading">載入中…</p>`;
   try {
-    const snap = await getDocs(query(collection(db, "bookingLogs"), orderBy("timestamp", "desc"), limit(150)));
-    const list = snap.docs.map((d) => d.data());
-    el.innerHTML = head("操作紀錄", "顯示最近 150 筆；紀錄一旦寫入即無法修改或刪除") +
-      (list.length === 0 ? `<div class="card"><p class="empty">尚無操作紀錄</p></div>` : `<div class="card">${tableWrap(`
-        <table><thead><tr><th>時間</th><th>操作者</th><th>動作</th><th>對象</th><th>細節</th></tr></thead>
-        <tbody>${list.map((l) => `<tr>
-          <td>${l.timestamp?.toDate ? escapeHtml(l.timestamp.toDate().toLocaleString("zh-TW")) : "—"}</td>
-          <td>${escapeHtml(l.actor === "resident" ? "住戶" : (l.actor || "").replace("property:", ""))}</td>
-          <td>${escapeHtml(ACTION_LABEL[l.action] || l.action)}</td>
-          <td><code>${escapeHtml(l.targetId || "")}</code></td>
-          <td class="detail-cell">${escapeHtml(JSON.stringify(l.detail || {}))}</td>
-        </tr>`).join("")}</tbody></table>`)}</div>`);
+    const snap = await getDocs(query(collection(db, "bookingLogs"), orderBy("timestamp", "desc"), limit(300)));
+    logCache = snap.docs.map((d) => d.data());
+    logPage = 1;
+    renderLogs();
   } catch (err) {
     el.innerHTML = head("操作紀錄", "") + errorBox(err);
+  }
+}
+
+function renderLogs() {
+  const el = $("view-logs");
+  const total = logCache.length;
+  const pages = Math.max(1, Math.ceil(total / LOG_PAGE_SIZE));
+  logPage = Math.min(Math.max(1, logPage), pages);
+  const slice = logCache.slice((logPage - 1) * LOG_PAGE_SIZE, logPage * LOG_PAGE_SIZE);
+
+  el.innerHTML = head("操作紀錄", `共 ${total} 筆，每頁 ${LOG_PAGE_SIZE} 筆`) +
+    (total === 0 ? `<div class="card"><p class="empty">尚無操作紀錄</p></div>` : `
+    <div class="card">
+      ${tableWrap(`<table><thead><tr>
+        <th>時間</th><th>操作帳號</th><th>角色</th><th>動作</th><th>內容</th><th>IP</th><th>使用載具</th>
+      </tr></thead><tbody>${slice.map((l) => `<tr>
+        <td>${l.timestamp?.toDate ? escapeHtml(l.timestamp.toDate().toLocaleString("zh-TW", { hour12: false })) : "—"}</td>
+        <td>${escapeHtml(l.actorName || "")}<br><span class="sub-text">${escapeHtml(l.actorEmail || l.actor || "—")}</span></td>
+        <td>${escapeHtml(roleLabel(l.actorRole))}</td>
+        <td>${escapeHtml(ACTION_LABEL[l.action] || l.action || "—")}</td>
+        <td class="detail-cell">${escapeHtml(describeDetail(l.detail))}</td>
+        <td class="mono">${escapeHtml(l.ip || "未知")}</td>
+        <td>${escapeHtml(l.device || "未知")}</td>
+      </tr>`).join("")}</tbody></table>`)}
+      <div class="pager">
+        <button type="button" class="btn secondary sm" id="logPrev" ${logPage === 1 ? "disabled" : ""}>‹ 上一頁</button>
+        <span class="pager-info">第 ${logPage} / ${pages} 頁</span>
+        <button type="button" class="btn secondary sm" id="logNext" ${logPage === pages ? "disabled" : ""}>下一頁 ›</button>
+      </div>
+    </div>`);
+
+  if (total) {
+    $("logPrev").addEventListener("click", () => { logPage--; renderLogs(); });
+    $("logNext").addEventListener("click", () => { logPage++; renderLogs(); });
   }
 }

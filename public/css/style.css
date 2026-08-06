@@ -240,19 +240,7 @@ main { max-width: var(--container-max); margin: 0 auto; padding: var(--space-6) 
   height: 3px; background: var(--gold-500); z-index: 1;
 }
 
-/* 場地照片佔位 — 待社區提供實景照片後替換為 <img> */
-.facility-photo {
-  height: 150px;
-  background: var(--paper-200);
-  display: grid; place-items: center;
-  font-family: var(--font-serif);
-  color: var(--ink-500);
-  font-size: var(--text-sm);
-  letter-spacing: 0.2em;
-  flex-shrink: 0;
-}
-.facility-card:disabled .facility-photo { opacity: .6; }
-.facility-body { padding: var(--space-4) var(--space-5); flex: 1; display: flex; flex-direction: column; }
+.facility-body { padding: var(--space-5); flex: 1; display: flex; flex-direction: column; }
 .facility-title-row { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); margin-bottom: var(--space-2); }
 .facility-title { font-family: var(--font-serif); font-size: var(--text-xl); font-weight: var(--weight-bold); color: var(--ink-900); }
 .facility-desc { margin: 0 0 var(--space-3); font-size: var(--text-sm); color: var(--ink-500); flex: 1; }
@@ -524,6 +512,33 @@ td code, .mono { font-family: var(--font-mono); font-size: var(--text-sm); color
 .sub-text { color: var(--ink-500); font-size: var(--text-xs); }
 .doc-id { font-size: var(--text-2xs); color: var(--ink-500); font-weight: var(--weight-regular); font-family: var(--font-mono); }
 
+/* ---------- 登入 ---------- */
+
+.auth-wrap { max-width: 420px; margin: var(--space-7) auto; }
+.auth-lead { font-size: var(--text-sm); color: var(--ink-500); margin: 0 0 var(--space-5); line-height: var(--leading-normal); }
+
+/* 版首右側的登入者資訊 */
+.who {
+  display: inline-flex; flex-direction: column; line-height: 1.25;
+  font-size: var(--text-sm); color: var(--ink-700); text-align: right;
+}
+.who-sub { font-size: var(--text-2xs); color: var(--ink-500); }
+.role-tag {
+  display: inline-block; margin-top: 2px;
+  padding: 1px var(--space-2); border-radius: var(--radius-pill);
+  background: var(--gold-500); color: var(--ink-900);
+  font-size: var(--text-2xs); font-weight: var(--weight-semibold);
+}
+
+/* ---------- 分頁 ---------- */
+
+.pager {
+  display: flex; align-items: center; justify-content: center;
+  gap: var(--space-4); margin-top: var(--space-5);
+  padding-top: var(--space-4); border-top: 1px solid var(--border-hairline);
+}
+.pager-info { font-size: var(--text-sm); color: var(--ink-500); white-space: nowrap; }
+
 .skeleton { pointer-events: none; }
 .sk-line {
   height: 12px; border-radius: var(--radius-sm); margin-bottom: var(--space-3);
@@ -532,7 +547,6 @@ td code, .mono { font-family: var(--font-mono); font-size: var(--text-sm); color
   animation: sk 1.4s infinite;
 }
 .sk-title { height: 18px; width: 55%; }
-.sk-photo { height: 150px; background: var(--paper-200); }
 @keyframes sk { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 
 @media (prefers-reduced-motion: reduce) {
@@ -618,12 +632,8 @@ td code, .mono { font-family: var(--font-mono); font-size: var(--text-sm); color
   .row > * { flex: 1 1 100%; }
   .step .lbl { display: none; }
   .step-line { width: 24px; margin: 0 var(--space-2); }
-  /* 手機上場地卡改成左圖右文的橫式排列，一屏看得到更多場地 */
-  .facility-card { flex-direction: row; }
-  .facility-photo { height: auto; width: 104px; font-size: 10px; letter-spacing: 0.15em; }
-  .facility-body { padding: var(--space-3) var(--space-4); }
+  .facility-body { padding: var(--space-4); }
   .facility-title { font-size: var(--text-base); }
-  .facility-desc { display: none; }
   .footer-inner { flex-direction: column; align-items: flex-start; }
   .admin-main { padding: var(--space-4); }
 }

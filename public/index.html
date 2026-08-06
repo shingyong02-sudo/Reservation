@@ -10,9 +10,11 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
 <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
+<link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin>
 <link rel="modulepreload" href="js/app.js">
 <link rel="modulepreload" href="js/firebase-config.js">
 <link rel="modulepreload" href="js/shared.js">
+<link rel="modulepreload" href="js/auth.js">
 <link rel="stylesheet" href="css/style.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='3' fill='%239e3b2e'/><text x='16' y='24' font-size='22' text-anchor='middle' fill='%23fbf8f1' font-family='serif'>懋</text></svg>">
 </head>
@@ -29,22 +31,44 @@
   <nav aria-label="主選單">
     <button type="button" class="linklike" data-goto="facilities">場地一覽</button>
     <button type="button" class="linklike" data-goto="rules">預約規則</button>
-    <button type="button" class="linklike" id="navLookup">查詢／取消</button>
-    <a href="/admin" class="quiet">物業後台</a>
+    <button type="button" class="linklike" id="navMine">我的預約</button>
+    <!-- 後台入口僅在登入者具備後台權限時才顯示 -->
+    <a href="/admin" class="quiet hidden" id="adminLink">物業後台</a>
+    <span id="authArea"></span>
   </nav>
 </header>
 
 <main>
+  <!-- ========== 登入 ========== -->
+  <section id="viewLogin" class="hidden">
+    <div class="auth-wrap">
+      <div class="card ruled">
+        <h3>住戶登入</h3>
+        <p class="auth-lead">預約公共設施需先登入。帳號由物業管理中心建立，如尚未取得帳號請洽 <span class="contact-phone"></span>。</p>
+        <div class="field">
+          <label for="loginEmail">帳號（Email）</label>
+          <input type="email" id="loginEmail" autocomplete="username" inputmode="email">
+        </div>
+        <div class="field">
+          <label for="loginPassword">密碼</label>
+          <input type="password" id="loginPassword" autocomplete="current-password">
+        </div>
+        <div id="loginAlert" role="alert" aria-live="assertive"></div>
+        <button type="button" class="btn primary block" id="loginBtn">登入</button>
+      </div>
+    </div>
+  </section>
+
   <!-- ========== 首頁 ========== -->
-  <section id="viewHome">
+  <section id="viewHome" class="hidden">
     <div class="hero">
       <div>
         <div class="overline">聯懋超綻管理委員會</div>
         <h1>公共設施線上預約</h1>
-        <p class="lead">六大公共場地開放住戶線上預約。即時查看各時段狀態，完成預約後憑查詢碼查詢或取消。</p>
+        <p class="lead">六大公共場地開放住戶線上預約。即時查看各時段狀態，完成預約後可於「我的預約」查詢或取消。</p>
         <div class="hero-actions">
           <button type="button" class="btn primary lg" data-goto="facilities">立即預約場地</button>
-          <button type="button" class="btn secondary lg" id="heroLookup">查詢／取消預約</button>
+          <button type="button" class="btn secondary lg" id="heroMine">我的預約</button>
         </div>
       </div>
       <div class="card ruled">
@@ -93,8 +117,8 @@
           <p>同一時段每戶限預約一項設施，重複預約系統將擋下。</p>
         </div>
         <div class="rule">
-          <h3>四、查詢碼</h3>
-          <p>預約完成請保存查詢碼；查詢與取消皆須憑碼辦理。</p>
+          <h3>四、預約查詢</h3>
+          <p>預約完成後可於「我的預約」查詢或取消，並保留查詢碼備查。</p>
         </div>
       </div>
     </section>
@@ -106,26 +130,12 @@
     <div id="bookingBody"></div>
   </section>
 
-  <!-- ========== 查詢／取消 ========== -->
-  <section id="viewLookup" class="hidden">
-    <div class="row" style="align-items:stretch">
-      <div class="card" style="flex:1 1 320px">
-        <h3>查詢／取消預約</h3>
-        <p style="font-size:var(--text-sm);color:var(--ink-500);margin:0 0 20px">請輸入預約完成時取得的查詢碼，以及當時填寫的門牌號碼。</p>
-        <div class="field">
-          <label for="lookupCode">查詢碼</label>
-          <input type="text" id="lookupCode" inputmode="latin" autocapitalize="characters"
-                 autocomplete="off" maxlength="8" placeholder="例：YX-8F2K6">
-        </div>
-        <div class="field">
-          <label for="lookupHouse">門牌號碼</label>
-          <input type="text" id="lookupHouse" autocomplete="off" placeholder="例：A 棟 12 樓之 3">
-        </div>
-        <button type="button" class="btn primary block" id="lookupBtn">查詢預約</button>
-        <p class="hint">遺失查詢碼請洽物業管理中心 <span class="contact-phone">03-8888-5678</span> 協助查詢。</p>
-      </div>
-      <div id="lookupResult" style="flex:1 1 320px" aria-live="polite"></div>
+  <!-- ========== 我的預約 ========== -->
+  <section id="viewMine" class="hidden">
+    <div class="section-head">
+      <h2>我的預約</h2><span class="en">MY BOOKINGS</span>
     </div>
+    <div id="mineBody"></div>
   </section>
 </main>
 
@@ -135,9 +145,10 @@
       <span class="seal sm" aria-hidden="true"><span>聯</span><span>懋</span><span>超</span><span>綻</span></span>
       <div>
         <div class="org">聯懋超綻管理委員會</div>
+        <div class="meta">物業管理中心 <span class="contact-phone"></span> · 服務時間 09:00 – 18:00</div>
       </div>
     </div>
-    <div class="meta">© 2026 聯懋超綻 · <a href="/admin">物業後台</a></div>
+    <div class="meta">© 2026 聯懋超綻</div>
   </div>
 </footer>
 

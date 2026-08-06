@@ -122,3 +122,119 @@ export function sealHtml(extraClass = "") {
   return `<span class="seal ${extraClass}" aria-hidden="true">${
     COMMUNITY.sealGlyphs.map((g) => `<span>${g}</span>`).join("")}</span>`;
 }
+
+/* ============================================================
+   角色
+   ============================================================ */
+
+export const ROLES = {
+  system_admin: "系統管理員",
+  property_admin: "後台管理員",
+  resident: "一般住戶",
+};
+
+// 只有這兩種角色進得了後台
+export const STAFF_ROLES = ["system_admin", "property_admin"];
+export const isStaffRole = (r) => STAFF_ROLES.includes(r);
+
+export function roleLabel(r) { return ROLES[r] || r || "未設定"; }
+
+/* ============================================================
+   操作紀錄：全部以繁體中文呈現
+   ============================================================ */
+
+export const ACTION_LABEL = {
+  login: "登入系統",
+  logout: "登出系統",
+  create: "登記預約",
+  cancel: "取消預約",
+  approve: "核准預約",
+  reject: "拒絕預約",
+  release_slot: "釋出時段",
+  equipment_status_change: "設備調整",
+  config_change: "設定調整",
+  account_create: "建立帳號",
+  account_update: "修改帳號",
+  account_delete: "刪除帳號",
+  facility_delete: "刪除場地",
+};
+
+const FIELD_LABEL = {
+  facilityId: "場地", facilityName: "場地", date: "日期", startTime: "開始時間",
+  endTime: "結束時間", slotId: "時段", houseNumber: "門牌", applicantName: "住戶姓名",
+  phone: "電話", name: "名稱", description: "簡介", capacity: "容納人數",
+  status: "狀態", bookingMode: "審核方式", dailyLimitPerUnit: "單日上限",
+  weeklyLimitPerUnit: "單週上限", essential: "必要設備", note: "備註",
+  role: "角色", disabled: "停用", email: "帳號", published: "發布",
+  created: "新增", deleted: "刪除", text: "內容", addSlot: "新增時段",
+  deleteSlot: "刪除時段", order: "排序", featured: "重點場地",
+};
+
+const VALUE_LABEL = {
+  open: "開放", closed: "暫停開放", auto: "自動確認", review: "需審核",
+  normal: "正常", maintenance: "維修中", retired: "已汰除",
+  true: "是", false: "否", null: "未設定",
+};
+
+// 把 detail 物件轉成中文敘述，取代原本直接倒 JSON 的做法
+export function describeDetail(detail) {
+  if (!detail || typeof detail !== "object") return "—";
+  const parts = [];
+  for (const [k, v] of Object.entries(detail)) {
+    if (v === undefined || v === null || v === "") continue;
+    if (k === "updatedAt" || k === "updatedBy") continue;
+    const key = FIELD_LABEL[k] || k;
+    let val;
+    if (typeof v === "boolean") val = v ? "是" : "否";
+    else if (Array.isArray(v)) val = v.join("、");
+    else if (typeof v === "object") val = describeDetail(v);
+    else val = VALUE_LABEL[String(v)] ?? String(v);
+    parts.push(`${key}：${val}`);
+  }
+  return parts.length ? parts.join("；") : "—";
+}
+
+/* ============================================================
+   登入軌跡：載具與 IP
+   ============================================================ */
+
+// 把 userAgent 轉成「手機 · Chrome」這種看得懂的字串
+export function describeDevice(ua = navigator.userAgent) {
+  const s = ua || "";
+  let kind = "電腦";
+  if (/iPad|Tablet|PlayBook|Silk/i.test(s) || (/Android/i.test(s) && !/Mobile/i.test(s))) kind = "平板";
+  else if (/Mobi|iPhone|Android|Windows Phone/i.test(s)) kind = "手機";
+
+  let os = "";
+  if (/Windows NT/i.test(s)) os = "Windows";
+  else if (/iPhone|iPad|iPod/i.test(s)) os = "iOS";
+  else if (/Mac OS X/i.test(s)) os = "macOS";
+  else if (/Android/i.test(s)) os = "Android";
+  else if (/Linux/i.test(s)) os = "Linux";
+
+  let br = "";
+  if (/Edg\//i.test(s)) br = "Edge";
+  else if (/OPR\//i.test(s)) br = "Opera";
+  else if (/Chrome\//i.test(s) && !/Chromium/i.test(s)) br = "Chrome";
+  else if (/Firefox\//i.test(s)) br = "Firefox";
+  else if (/Safari\//i.test(s) && !/Chrome/i.test(s)) br = "Safari";
+
+  return [kind, os, br].filter(Boolean).join(" · ") || "未知裝置";
+}
+
+// 用戶端拿不到自己的連線 IP（Firebase Auth 也不提供），
+// 只能向外部服務詢問。查不到時回「未知」，不影響登入流程。
+let cachedIp = null;
+export async function fetchClientIp() {
+  if (cachedIp) return cachedIp;
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 2500);
+    const res = await fetch("https://api.ipify.org?format=json", { signal: ctrl.signal });
+    clearTimeout(t);
+    cachedIp = (await res.json()).ip || "未知";
+  } catch {
+    cachedIp = "未知";
+  }
+  return cachedIp;
+}

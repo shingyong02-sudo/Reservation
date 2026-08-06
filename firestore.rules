@@ -2,112 +2,155 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // 既有工作區的測試集合，維持原樣
-    match /test_collection/{document} {
-      allow read, write: if true;
+    // ---------- 角色判定 ----------
+    // 角色存在 users/{uid}.role：
+    //   system_admin  系統管理員（可管理帳號與所有設定）
+    //   property_admin 後台管理員（可進後台，但不能改帳號權限）
+    //   resident      一般住戶（只能預約，進不了後台）
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    function hasProfile() {
+      return request.auth != null
+             && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+    function role() {
+      return hasProfile() ? userDoc().role : 'none';
+    }
+    function isActive() {
+      return hasProfile() && userDoc().disabled != true;
+    }
+    function isStaff() {
+      return isActive() && role() in ['system_admin', 'property_admin'];
+    }
+    function isSystemAdmin() {
+      return isActive() && role() == 'system_admin';
     }
 
-    // 社區公告：任何人可讀，僅登入的物業帳號可寫
+    // ---------- 使用者帳號 ----------
+    match /users/{uid} {
+      // 自己看得到自己的資料（前台需要讀門牌與角色）；後台人員看得到全部
+      allow get: if request.auth != null && (request.auth.uid == uid || isStaff());
+      allow list: if isStaff();
+
+      // 建立帳號：本人首次建檔（角色強制為 resident，避免自行提權），或系統管理員代建
+      allow create: if isSystemAdmin()
+                    || (request.auth != null && request.auth.uid == uid
+                        && request.resource.data.role == 'resident'
+                        && request.resource.data.disabled == false);
+
+      // 本人只能改自己的姓名與電話，不能碰 role / disabled / houseNumber
+      allow update: if isSystemAdmin()
+                    || (request.auth != null && request.auth.uid == uid
+                        && request.resource.data.diff(resource.data)
+                             .affectedKeys().hasOnly(['name', 'phone', 'updatedAt']));
+      allow delete: if isSystemAdmin();
+    }
+
+    // ---------- 社區公告 ----------
     match /announcements/{id} {
       allow read: if true;
-      allow write: if request.auth != null;
+      allow write: if isStaff();
     }
 
-    // 場地主檔：任何人可讀，僅登入的物業帳號可寫
+    // ---------- 場地 ----------
     match /facilities/{facilityId} {
       allow read: if true;
-      allow write: if request.auth != null;
+      allow write: if isStaff();
 
       match /timeSlotTemplates/{slotId} {
         allow read: if true;
-        allow write: if request.auth != null;
+        allow write: if isStaff();
       }
-
       match /equipment/{equipmentId} {
         allow read: if true;
-        allow write: if request.auth != null;
+        allow write: if isStaff();
       }
     }
 
-    // 時段鎖：doc id = facilityId__date__slotId，靠「同一 id 只能存在一份」防止重複預約
+    // ---------- 時段鎖 ----------
+    // doc id = facilityId__date__slotId，靠「同一 id 只能存在一份」防止重複預約
     match /slotLocks/{lockId} {
       allow read: if true;
-      allow create: if true;
-
-      // 三種合法的更新情境：
-      // 1. 物業（已登入）可任意調整
-      // 2. 已取消的鎖可被別人重新佔用
-      // 3. 對應的預約已是 cancelled/rejected 時，任何人都可把鎖釋出
-      //    （此時擋著時段沒有意義，且無法用來破壞別人的有效預約）
-      allow update: if request.auth != null
-                    || (resource.data.status == 'cancelled'
+      allow create: if isActive();
+      allow update: if isStaff()
+                    // 已取消的鎖可被別人重新佔用
+                    || (isActive() && resource.data.status == 'cancelled'
                         && request.resource.data.status in ['confirmed', 'pending_review'])
-                    || (request.resource.data.status == 'cancelled'
+                    // 對應的預約已取消／拒絕時，可把鎖釋出（不影響他人的有效預約）
+                    || (isActive() && request.resource.data.status == 'cancelled'
                         && get(/databases/$(database)/documents/bookings/$(resource.data.bookingId)).data.status
                            in ['cancelled', 'rejected']);
-      allow delete: if request.auth != null;
+      allow delete: if isStaff();
     }
 
-    // 同時段跨場地佔位：doc id = houseNumber__date__startTime
-    // 用來實作「同一時段每戶限預約一項設施」。只存場地代號與預約編號，
-    // 不含姓名或電話；且不開放 list，無法被拿來列舉住戶。
+    // ---------- 同時段跨場地佔位 ----------
+    // doc id = uid__date__startTime，實作「同一時段每戶限預約一項設施」
     match /unitSlotHolds/{id} {
-      allow get: if true;
-      allow list: if request.auth != null;
-      allow create: if true;
-      allow update: if request.auth != null;
-      // 對應的預約已取消時，任何人都可清掉這筆佔位（否則該戶會被自己的舊預約卡住）
-      allow delete: if request.auth != null
-                    || get(/databases/$(database)/documents/bookings/$(resource.data.bookingId)).data.status
-                       in ['cancelled', 'rejected'];
+      allow get: if isActive();
+      allow list: if isStaff();
+      allow create: if isActive();
+      allow update: if isStaff();
+      allow delete: if isStaff()
+                    || (isActive()
+                        && get(/databases/$(database)/documents/bookings/$(resource.data.bookingId)).data.status
+                           in ['cancelled', 'rejected']);
     }
 
-    // 同門牌單日/單週使用量計數器：doc id = facilityId__houseNumber__date(或當週週一)
-    // 只存數字、不含個資，讓住戶端可在交易內讀寫，
-    // 而不需要列出整個 bookings 集合。只允許 ±1 且不得為負。
+    // ---------- 預約次數計數器 ----------
+    // doc id 以 uid 為主鍵，住戶登入後才寫得動，
+    // 且只允許 ±1、不得為負，無法自行歸零繞過上限。
     match /unitDailyUsage/{id} {
-      allow read: if true;
-      allow create: if request.resource.data.keys().hasOnly(['count'])
+      allow read: if isActive();
+      allow create: if isActive() && request.resource.data.keys().hasOnly(['count'])
                     && request.resource.data.count == 1;
-      allow update: if request.auth != null
-                    || (request.resource.data.keys().hasOnly(['count'])
+      allow update: if isStaff()
+                    || (isActive() && request.resource.data.keys().hasOnly(['count'])
                         && (request.resource.data.count == resource.data.count + 1
                             || request.resource.data.count == resource.data.count - 1)
                         && request.resource.data.count >= 0);
-      allow delete: if request.auth != null;
+      allow delete: if isStaff();
     }
     match /unitWeeklyUsage/{id} {
-      allow read: if true;
-      allow create: if request.resource.data.keys().hasOnly(['count'])
+      allow read: if isActive();
+      allow create: if isActive() && request.resource.data.keys().hasOnly(['count'])
                     && request.resource.data.count == 1;
-      allow update: if request.auth != null
-                    || (request.resource.data.keys().hasOnly(['count'])
+      allow update: if isStaff()
+                    || (isActive() && request.resource.data.keys().hasOnly(['count'])
                         && (request.resource.data.count == resource.data.count + 1
                             || request.resource.data.count == resource.data.count - 1)
                         && request.resource.data.count >= 0);
-      allow delete: if request.auth != null;
+      allow delete: if isStaff();
     }
 
-    // 預約紀錄：doc id = 查詢碼（隨機碼即憑證，不可被列舉）
+    // ---------- 預約 ----------
     match /bookings/{bookingId} {
-      allow get: if true;
-      allow list: if request.auth != null;
-      allow create: if request.resource.data.keys().hasAll(
-                        ['facilityId', 'date', 'slotId', 'startTime', 'endTime',
-                         'applicantName', 'houseNumber', 'status', 'createdAt']
-                      )
-                      && request.resource.data.status in ['confirmed', 'pending_review'];
-      // 住戶憑查詢碼可自行取消（僅能改 status/cancelledAt）；物業登入後可任意調整
-      allow update: if request.auth != null
-                    || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'cancelledAt'])
+      // 只看得到自己的預約；後台人員看得到全部
+      allow get: if isStaff() || (isActive() && resource.data.uid == request.auth.uid);
+      allow list: if isStaff() || (isActive() && resource.data.uid == request.auth.uid);
+
+      // 預約必須掛在自己的帳號下，無法冒用他人身分建立
+      allow create: if isActive()
+                    && request.resource.data.uid == request.auth.uid
+                    && request.resource.data.keys().hasAll(
+                         ['uid', 'facilityId', 'date', 'slotId', 'startTime', 'endTime',
+                          'applicantName', 'houseNumber', 'status', 'createdAt'])
+                    && request.resource.data.status in ['confirmed', 'pending_review'];
+
+      // 住戶只能取消自己的預約（且僅能改 status/cancelledAt）
+      allow update: if isStaff()
+                    || (isActive() && resource.data.uid == request.auth.uid
+                        && request.resource.data.diff(resource.data)
+                             .affectedKeys().hasOnly(['status', 'cancelledAt'])
                         && request.resource.data.status == 'cancelled');
-      allow delete: if request.auth != null;
+      allow delete: if isStaff();
     }
 
-    // 後台操作紀錄：任何寫入動作都可以附加一筆紀錄，但紀錄本身不可篡改
+    // ---------- 操作紀錄 ----------
+    // 只有後台人員讀得到（含 IP 與載具，屬個資）；寫入後不可篡改
     match /bookingLogs/{logId} {
-      allow read: if request.auth != null;
-      allow create: if true;
+      allow read: if isStaff();
+      allow create: if isActive();
       allow update, delete: if false;
     }
 
