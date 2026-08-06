@@ -22,6 +22,27 @@ let me = null;
 
 $("loginBtn").addEventListener("click", doLogin);
 $("loginPassword").addEventListener("keydown", (e) => { if (e.key === "Enter") doLogin(); });
+$("forgotPwdLink").addEventListener("click", doForgotPwd);
+
+async function doForgotPwd(e) {
+  e.preventDefault();
+  const email = $("loginEmail").value.trim();
+  const box = $("loginAlert");
+  box.innerHTML = "";
+  if (!email) {
+    box.innerHTML = `<div class="alert error">請先在 Email 欄位輸入您的信箱，再點擊忘記密碼。</div>`;
+    return;
+  }
+  try {
+    await sendPasswordResetEmail(auth, email);
+    box.innerHTML = `<div class="alert ok">已寄送重設密碼信至 ${escapeHtml(email)}，請至信箱收取。</div>`;
+  } catch (err) {
+    const msg = ["auth/invalid-email", "auth/user-not-found"].includes(err.code)
+      ? "請輸入正確的帳號 Email"
+      : friendlyError(err);
+    box.innerHTML = `<div class="alert error">${escapeHtml(msg)}</div>`;
+  }
+}
 
 async function doLogin() {
   const email = $("loginEmail").value.trim();
