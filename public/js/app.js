@@ -98,9 +98,11 @@ watchAuth(({ user, profile }) => {
   if (!user || !profile) {
     $("authArea").innerHTML = "";
     $("adminLink").classList.add("hidden");
+    document.querySelectorAll(".topbar nav button").forEach(btn => btn.classList.add("hidden"));
     navigate("login", {}, false);
     return;
   }
+  document.querySelectorAll(".topbar nav button").forEach(btn => btn.classList.remove("hidden"));
   $("authArea").innerHTML = `
     <span class="who">${escapeHtml(profile.name || profile.email)}
       <span class="who-sub">${escapeHtml(profile.houseNumber || "")}</span></span>
@@ -525,6 +527,10 @@ function renderDone({ code, status }) {
 async function loadMine() {
   const box = $("mineBody");
   box.innerHTML = `<div class="card"><p class="loading">載入中…</p></div>`;
+  if (!me) {
+    navigate("login");
+    return;
+  }
   try {
     const snap = await getDocs(query(collection(db, "bookings"),
       where("uid", "==", me.uid), orderBy("date", "desc"), limit(50)));
