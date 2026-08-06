@@ -3,12 +3,12 @@ import { getFirestore } from "https://www.gstatic.com/firebasejs/10.13.2/firebas
 import { getAuth } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyBK7IPrIbVAptetVH74L8scrCY2AkFPCSw",
-  authDomain: "my-teaching-tools-87a6d.firebaseapp.com",
-  projectId: "my-teaching-tools-87a6d",
-  storageBucket: "my-teaching-tools-87a6d.firebasestorage.app",
-  messagingSenderId: "590095652394",
-  appId: "1:590095652394:web:2005cb8ef041b4641e1553",
+  apiKey: "AIzaSyDFSnEpsN16FxGcfUYMcp6b1MsBOurzJzg",
+  authDomain: "reservation-98067.firebaseapp.com",
+  projectId: "reservation-98067",
+  storageBucket: "reservation-98067.firebasestorage.app",
+  messagingSenderId: "545855815166",
+  appId: "1:545855815166:web:3f47bb2cfdbc1d64fe14af",
 };
 
 export const app = initializeApp(firebaseConfig);
