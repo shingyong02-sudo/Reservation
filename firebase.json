@@ -27,10 +27,10 @@
         ]
       },
       {
-        "comment": "靜態資源可以快取，放在後面覆蓋上面的 no-cache",
+        "comment": "JS/CSS 改用 no-cache：檔名沒有版本雜湊，快取 1 小時會讓修好的版本延遲一小時才到使用者手上。瀏覽器仍會用 ETag 做條件式請求，沒改動時只回 304，成本很低。",
         "source": "**/*.@(css|js)",
         "headers": [
-          { "key": "Cache-Control", "value": "public, max-age=3600, must-revalidate" }
+          { "key": "Cache-Control", "value": "no-cache" }
         ]
       }
     ]

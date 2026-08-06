@@ -640,13 +640,26 @@ async function delNotice(n) {
 async function loadAccounts() {
   const el = $("view-accounts");
   if (!isSystemAdmin()) {
-    el.innerHTML = head("帳號管理", "") + `<div class="card"><p class="empty">僅系統管理員可管理帳號。</p></div>`;
+    // 把實際讀到的角色一併顯示，否則遇到權限問題時完全無從判斷是哪裡出錯
+    el.innerHTML = head("帳號管理", "") + `<div class="card">
+      <p class="empty">僅系統管理員可管理帳號。</p>
+      <div class="spec-list" style="margin-top:12px">
+        <div><span class="k">目前登入帳號</span><span class="v">${escapeHtml(me?.email || "（未取得）")}</span></div>
+        <div><span class="k">偵測到的角色</span><span class="v">${escapeHtml(me?.role || "（未設定）")}</span></div>
+        <div><span class="k">帳號編號</span><span class="v mono">${escapeHtml(me?.uid || "—")}</span></div>
+      </div>
+      <p class="hint">若角色不是 system_admin，請系統管理員至 Firestore 的 <code>users</code> 集合，
+      把此帳號編號對應文件的 <code>role</code> 欄位改為 <code>system_admin</code>。</p>
+    </div>`;
     return;
   }
   el.innerHTML = head("帳號管理", "住戶需有帳號才能預約設施") + `<p class="loading">載入中…</p>`;
   try {
-    const snap = await getDocs(query(collection(db, "users"), orderBy("houseNumber")));
-    const list = snap.docs.map((d) => ({ uid: d.id, ...d.data() }));
+    // 不用 orderBy：Firestore 會把缺少排序欄位的文件整筆略過，
+    // 沒填門牌的管理員帳號就會憑空從列表消失。改成全部取回後在前端排序。
+    const snap = await getDocs(collection(db, "users"));
+    const list = snap.docs.map((d) => ({ uid: d.id, ...d.data() }))
+      .sort((a, b) => (a.houseNumber || "").localeCompare(b.houseNumber || "", "zh-Hant"));
 
     el.innerHTML = head("帳號管理", `共 ${list.length} 個帳號`) + `
       <div class="card">

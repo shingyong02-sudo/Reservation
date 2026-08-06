@@ -44,7 +44,8 @@ export async function login(email, password) {
     throw new Error("ACCOUNT_DISABLED");
   }
   profile = { uid: cred.user.uid, email: cred.user.email, ...data };
-  await writeLog("account", cred.user.uid, "login", { 角色: data.role });
+  // 稽核紀錄寫失敗（例如 IP 查詢逾時）不該讓人登不進系統，因此不 await、也吞掉錯誤
+  writeLog("account", cred.user.uid, "login", { 角色: data.role }).catch(() => {});
   return profile;
 }
 
