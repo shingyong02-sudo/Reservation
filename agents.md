@@ -12,14 +12,24 @@
 ## 目標與路線圖
 - [x] 階段一：需求確認（RDQ 規格卡，status: confirmed）
 - [x] 階段二：資料模型與系統架構規劃藍圖（見 `docs/system-blueprint.md`）
-- [ ] 階段三：Firebase 專案設定（Firestore 資料結構、安全規則）
-- [ ] 階段四：住戶端預約頁面（多載具響應式）
-- [ ] 階段五：物業後台管理介面（場地/設備/人數/審核開關/操作紀錄）
-- [ ] 階段六：測試與上線
+- [x] 階段三：Firebase 專案設定（Firestore 資料結構、安全規則，已部署至 my-teaching-tools-87a6d）
+- [x] 階段四：住戶端預約頁面（`public/index.html`，多載具響應式，已測試預約/查詢/取消流程）
+- [x] 階段五：物業後台管理介面（`public/admin.html`，場地/設備/時段/預約/操作紀錄，程式碼完成，**尚未建管理員帳號無法登入測試**）
+- [ ] 階段六：測試與上線（住戶端已驗證；後台待建帳號後驗證；GitHub repo 目前仍是 Public 未改 Private）
 
 ## 資料夾結構
-<!-- 初始化時掃描為空資料夾，之後新增檔案要更新 -->
 - `docs/system-blueprint.md`：系統規劃藍圖（架構圖、資料模型、頁面規劃、開發順序）
+- `firestore.rules`：Firestore 安全規則（已部署）
+- `firebase.json` / `.firebaserc`：Firebase Hosting/Firestore 設定（連到 my-teaching-tools-87a6d）
+- `public/index.html` + `public/js/app.js`：住戶預約端
+- `public/admin.html` + `public/js/admin.js`：物業後台
+- `public/js/firebase-config.js`：共用 Firebase SDK 設定
+- `public/js/shared.js`：共用工具函式（查詢碼產生、日期處理等）
+- `public/css/style.css`：共用響應式樣式
+
+## 已上線網址
+- 住戶端：https://my-teaching-tools-87a6d.web.app
+- 物業後台：https://my-teaching-tools-87a6d.web.app/admin
 
 ## 同步層級（本專案初始化至第 3 層級）
 
