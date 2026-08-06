@@ -1,10 +1,10 @@
 /* 全站共用設定與工具函式 */
 
-export const COMMUNITY = {
-  name: "億學造鎮社區",
-  org: "億學造鎮社區管理委員會",
+export const COMMUNITY = { 
+  name: "聯懋超綻社區",
+  org: "聯懋超綻社區管理委員會",
   subtitle: "公共設施預約系統",
-  sealGlyphs: ["億", "學", "造", "鎮"],
+  sealGlyphs: ["聯", "懋", "超", "綻"],
   // TODO: 以下為設計稿的示意資料，請社區提供正式聯絡方式後替換
   phone: "02-1234-5678",
   serviceHours: "09:00 – 18:00",
