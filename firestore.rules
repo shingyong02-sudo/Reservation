@@ -27,22 +27,46 @@ service cloud.firestore {
     match /slotLocks/{lockId} {
       allow read: if true;
       allow create: if true;
-      // 已取消的鎖可以被重新佔用；其餘變更（含手動釋出）僅限已登入物業
+
+      // 三種合法的更新情境：
+      // 1. 物業（已登入）可任意調整
+      // 2. 已取消的鎖可被別人重新佔用
+      // 3. 對應的預約已是 cancelled/rejected 時，任何人都可把鎖釋出
+      //    （改成 cancelled）——因為此時擋著時段沒有意義，且無法用來破壞
+      //    別人的有效預約，住戶取消後時段即可自動回到可預約狀態
       allow update: if request.auth != null
                     || (resource.data.status == 'cancelled'
-                        && request.resource.data.status in ['confirmed', 'pending_review']);
+                        && request.resource.data.status in ['confirmed', 'pending_review'])
+                    || (request.resource.data.status == 'cancelled'
+                        && get(/databases/$(database)/documents/bookings/$(resource.data.bookingId)).data.status
+                           in ['cancelled', 'rejected']);
       allow delete: if request.auth != null;
     }
 
-    // 同門牌單日/單週使用量計數器：doc id = facilityId__houseNumber__date(或週一日期)
-    // 只存數字，不含姓名/電話等個資，讓住戶端可在交易內讀寫而不需要列出整個 bookings 集合
+    // 同門牌單日/單週使用量計數器：doc id = facilityId__houseNumber__date(或當週週一)
+    // 只存數字、不含個資，讓住戶端可在交易內讀寫，而不需要列出整個 bookings 集合。
+    // 只允許 +1／-1，避免任何人把 count 直接改成 0 來繞過預約次數上限。
     match /unitDailyUsage/{id} {
       allow read: if true;
-      allow write: if request.resource.data.keys().hasOnly(['count']) && request.resource.data.count is int;
+      allow create: if request.resource.data.keys().hasOnly(['count'])
+                    && request.resource.data.count == 1;
+      allow update: if request.auth != null
+                    || (request.resource.data.keys().hasOnly(['count'])
+                        && (request.resource.data.count == resource.data.count + 1
+                            || request.resource.data.count == resource.data.count - 1)
+                        && request.resource.data.count >= 0);
+      allow delete: if request.auth != null;
     }
     match /unitWeeklyUsage/{id} {
       allow read: if true;
-      allow write: if request.resource.data.keys().hasOnly(['count']) && request.resource.data.count is int;
+      allow create: if request.resource.data.keys().hasOnly(['count'])
+                    && request.resource.data.count == 1;
+      allow update: if request.auth != null
+                    || (request.resource.data.keys().hasOnly(['count'])
+                        && (request.resource.data.count == resource.data.count + 1
+                            || request.resource.data.count == resource.data.count - 1)
+                        && request.resource.data.count >= 0);
+      allow delete: if request.auth != null;
     }
 
     // 預約紀錄：doc id = 查詢碼（隨機碼即憑證，不可被列舉）

@@ -1,14 +1,19 @@
 import { db } from "./firebase-config.js";
 import {
   collection, doc, getDoc, getDocs, query, where,
-  runTransaction, addDoc, updateDoc, serverTimestamp,
+  runTransaction, addDoc, updateDoc, setDoc, serverTimestamp,
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
-import { generateQueryCode, todayStr, isoWeekday, slotLockId, escapeHtml, fmtStatus } from "./shared.js";
+import {
+  generateQueryCode, todayStr, isoWeekday, weekStartOf, slotLockId,
+  escapeHtml, fmtStatus, fmtDateHuman, friendlyError,
+} from "./shared.js";
 
-const tabBook = document.getElementById("tabBook");
-const tabLookup = document.getElementById("tabLookup");
-const viewBook = document.getElementById("viewBook");
-const viewLookup = document.getElementById("viewLookup");
+const $ = (id) => document.getElementById(id);
+
+const tabBook = $("tabBook");
+const tabLookup = $("tabLookup");
+const viewBook = $("viewBook");
+const viewLookup = $("viewLookup");
 
 tabBook.addEventListener("click", () => switchTab("book"));
 tabLookup.addEventListener("click", () => switchTab("lookup"));
@@ -17,64 +22,86 @@ function switchTab(name) {
   const isBook = name === "book";
   tabBook.classList.toggle("active", isBook);
   tabLookup.classList.toggle("active", !isBook);
+  tabBook.setAttribute("aria-selected", String(isBook));
+  tabLookup.setAttribute("aria-selected", String(!isBook));
   viewBook.classList.toggle("hidden", !isBook);
   viewLookup.classList.toggle("hidden", isBook);
 }
 
 /* ---------- 場地列表 ---------- */
 
-const facilityGrid = document.getElementById("facilityGrid");
-const bookingPanel = document.getElementById("bookingPanel");
+const facilityGrid = $("facilityGrid");
+const bookingPanel = $("bookingPanel");
 let facilitiesCache = [];
+const blockedCache = new Map(); // facilityId → 故障的必要設備名稱字串，或 null
 
 async function loadFacilities() {
-  facilityGrid.innerHTML = "<p>載入中…</p>";
-  const snap = await getDocs(collection(db, "facilities"));
-  facilitiesCache = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-  facilitiesCache.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  facilityGrid.innerHTML = skeletonCards(6);
+  try {
+    const snap = await getDocs(collection(db, "facilities"));
+    facilitiesCache = snap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 
-  if (facilitiesCache.length === 0) {
-    facilityGrid.innerHTML = "<p>目前尚未設定任何場地，請聯繫物業。</p>";
-    return;
-  }
-
-  const cards = await Promise.all(facilitiesCache.map(renderFacilityCard));
-  facilityGrid.innerHTML = cards.join("");
-
-  facilitiesCache.forEach((f) => {
-    const el = document.getElementById(`fac-${f.id}`);
-    if (el && f.status !== "closed") {
-      el.addEventListener("click", () => openBookingPanel(f.id));
+    if (facilitiesCache.length === 0) {
+      facilityGrid.innerHTML = `<p class="empty">目前尚未設定任何場地，請聯繫物業。</p>`;
+      return;
     }
-  });
+
+    // 每個場地的必要設備狀態平行查詢一次，結果存進 blockedCache 供後續重用，
+    // 避免點進預約面板時又打一次同樣的查詢
+    await Promise.all(facilitiesCache.map(async (f) => {
+      blockedCache.set(f.id, f.status === "closed" ? null : await fetchBlockedReason(f.id));
+    }));
+
+    facilityGrid.innerHTML = facilitiesCache.map(renderFacilityCard).join("");
+    facilitiesCache.forEach((f) => {
+      const el = $(`fac-${f.id}`);
+      if (el) el.addEventListener("click", () => openBookingPanel(f.id));
+    });
+  } catch (err) {
+    facilityGrid.innerHTML =
+      `<div class="alert error" role="alert">場地載入失敗：${escapeHtml(friendlyError(err))}
+       <button class="btn small secondary" id="retryLoad">重新載入</button></div>`;
+    $("retryLoad")?.addEventListener("click", loadFacilities);
+  }
 }
 
-async function isFacilityBlocked(facilityId) {
+function skeletonCards(n) {
+  return Array.from({ length: n }, () =>
+    `<div class="card skeleton" aria-hidden="true"><div class="sk-line sk-title"></div><div class="sk-line"></div></div>`
+  ).join("");
+}
+
+async function fetchBlockedReason(facilityId) {
   const eqSnap = await getDocs(
     query(collection(db, "facilities", facilityId, "equipment"),
       where("essential", "==", true), where("status", "==", "maintenance"))
   );
-  if (eqSnap.empty) return null;
-  return eqSnap.docs.map((d) => d.data().name).join("、");
+  return eqSnap.empty ? null : eqSnap.docs.map((d) => d.data().name).join("、");
 }
 
-async function renderFacilityCard(f) {
-  const blockedReason = f.status === "closed" ? null : await isFacilityBlocked(f.id);
+function renderFacilityCard(f) {
+  const blocked = blockedCache.get(f.id);
+  const closed = f.status === "closed";
+  const disabled = closed || !!blocked;
+
   let badge = `<span class="badge open">開放預約</span>`;
-  if (f.status === "closed") badge = `<span class="badge closed">場地暫停開放</span>`;
-  else if (blockedReason) badge = `<span class="badge maintenance">必要設備維修中</span>`;
+  if (closed) badge = `<span class="badge closed">場地暫停開放</span>`;
+  else if (blocked) badge = `<span class="badge maintenance">必要設備維修中</span>`;
 
   const capacityLine = f.capacity
-    ? `容納人數：${f.capacity} 人`
-    : (f.unitCount ? `場地數量：${f.unitCount} 間` : "");
+    ? `可容納 ${f.capacity} 人`
+    : (f.unitCount ? `共 ${f.unitCount} 間` : "");
 
+  // 用真正的 <button> 而不是可點的 <div>，鍵盤與螢幕報讀器才能操作
   return `
-    <div class="card facility-card" id="fac-${f.id}">
+    <button type="button" class="card facility-card" id="fac-${f.id}" ${disabled ? "disabled" : ""}>
       <h3>${escapeHtml(f.name)}</h3>
-      <div class="meta">${capacityLine}</div>
+      <div class="meta">${escapeHtml(capacityLine)}</div>
       ${badge}
-      ${blockedReason ? `<div class="alert warn">${escapeHtml(blockedReason)} 故障中，暫停預約</div>` : ""}
-    </div>`;
+      ${blocked ? `<div class="alert warn">${escapeHtml(blocked)} 故障中，暫停預約</div>` : ""}
+    </button>`;
 }
 
 /* ---------- 預約流程 ---------- */
@@ -82,121 +109,146 @@ async function renderFacilityCard(f) {
 let currentFacility = null;
 let selectedSlot = null;
 
-async function openBookingPanel(facilityId) {
+function openBookingPanel(facilityId) {
   currentFacility = facilitiesCache.find((f) => f.id === facilityId);
   selectedSlot = null;
 
-  const blockedReason = await isFacilityBlocked(facilityId);
   bookingPanel.classList.remove("hidden");
   bookingPanel.innerHTML = `
     <div class="card">
-      <h3>${escapeHtml(currentFacility.name)} — 選擇日期與時段</h3>
-      ${blockedReason ? `<div class="alert warn">目前「${escapeHtml(blockedReason)}」維修中，此場地暫停預約，請稍後再試。</div>` : ""}
-      <label>日期</label>
-      <input type="date" id="bookDate" min="${todayStr()}" value="${todayStr()}" ${blockedReason ? "disabled" : ""}>
+      <button type="button" class="btn small secondary back-btn" id="backToList">← 回場地列表</button>
+      <h3>${escapeHtml(currentFacility.name)}</h3>
+      <label for="bookDate">選擇日期</label>
+      <input type="date" id="bookDate" min="${todayStr()}" value="${todayStr()}">
       <div id="slotArea"></div>
       <div id="bookForm" class="hidden">
-        <label>姓名</label>
-        <input type="text" id="applicantName" placeholder="請輸入姓名">
-        <label>門牌號碼</label>
-        <input type="text" id="houseNumber" placeholder="例如 3-5F 或 A棟501">
-        <label>使用人數</label>
-        <input type="number" id="peopleCount" min="1" value="1" ${currentFacility.capacity ? `max="${currentFacility.capacity}"` : ""}>
-        <label>連絡電話（選填）</label>
-        <input type="text" id="phone" placeholder="方便物業聯繫">
-        <div id="bookAlert"></div>
-        <button class="btn" id="submitBooking">送出預約</button>
+        <label for="applicantName">姓名</label>
+        <input type="text" id="applicantName" autocomplete="name" placeholder="請輸入姓名">
+        <label for="houseNumber">門牌號碼</label>
+        <input type="text" id="houseNumber" placeholder="例如 A棟-1201">
+        <label for="peopleCount">使用人數</label>
+        <input type="number" id="peopleCount" min="1" value="1"
+               ${currentFacility.capacity ? `max="${currentFacility.capacity}"` : ""}>
+        <label for="phone">連絡電話（選填）</label>
+        <input type="tel" id="phone" autocomplete="tel" placeholder="方便物業聯繫">
+        <div id="bookAlert" role="alert" aria-live="assertive"></div>
+        <button type="button" class="btn" id="submitBooking">送出預約</button>
       </div>
     </div>`;
 
-  bookingPanel.scrollIntoView({ behavior: "smooth" });
-  document.getElementById("bookDate").addEventListener("change", loadSlots);
-  if (!blockedReason) loadSlots();
+  bookingPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+  $("backToList").addEventListener("click", closeBookingPanel);
+  $("bookDate").addEventListener("change", loadSlots);
+  $("submitBooking")?.addEventListener("click", submitBooking);
+  loadSlots();
+}
+
+function closeBookingPanel() {
+  bookingPanel.classList.add("hidden");
+  bookingPanel.innerHTML = "";
+  currentFacility = null;
+  selectedSlot = null;
+  facilityGrid.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 async function loadSlots() {
-  const date = document.getElementById("bookDate").value;
-  const slotArea = document.getElementById("slotArea");
-  document.getElementById("bookForm").classList.add("hidden");
+  const date = $("bookDate").value;
+  const slotArea = $("slotArea");
+  $("bookForm").classList.add("hidden");
   selectedSlot = null;
-  slotArea.innerHTML = "<p>載入時段中…</p>";
+  slotArea.innerHTML = `<p class="loading">載入時段中…</p>`;
 
-  const weekday = isoWeekday(date);
-  const tplSnap = await getDocs(collection(db, "facilities", currentFacility.id, "timeSlotTemplates"));
-  const templates = tplSnap.docs
-    .map((d) => ({ id: d.id, ...d.data() }))
-    .filter((t) => (t.weekdays || []).includes(weekday))
-    .sort((a, b) => a.startTime.localeCompare(b.startTime));
+  try {
+    const weekday = isoWeekday(date);
+    const [tplSnap, lockSnap] = await Promise.all([
+      getDocs(collection(db, "facilities", currentFacility.id, "timeSlotTemplates")),
+      getDocs(query(collection(db, "slotLocks"),
+        where("facilityId", "==", currentFacility.id),
+        where("date", "==", date),
+        where("status", "in", ["confirmed", "pending_review"]))),
+    ]);
 
-  if (templates.length === 0) {
-    slotArea.innerHTML = `<div class="alert warn">這天沒有開放時段</div>`;
-    return;
-  }
+    const templates = tplSnap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .filter((t) => (t.weekdays || []).includes(weekday))
+      .sort((a, b) => a.startTime.localeCompare(b.startTime));
 
-  const lockSnap = await getDocs(
-    query(collection(db, "slotLocks"),
-      where("facilityId", "==", currentFacility.id),
-      where("date", "==", date),
-      where("status", "in", ["confirmed", "pending_review"]))
-  );
-  const taken = new Set(lockSnap.docs.map((d) => d.data().slotId));
+    if (templates.length === 0) {
+      slotArea.innerHTML = `<div class="alert warn">${fmtDateHuman(date)}沒有開放時段，請改選其他日期。</div>`;
+      return;
+    }
 
-  slotArea.innerHTML = `<div class="slot-grid">${templates.map((t) => `
-      <div class="slot-btn ${taken.has(t.id) ? "taken" : ""}" data-slot="${t.id}"
-           data-start="${t.startTime}" data-end="${t.endTime}" data-label="${t.label || (t.startTime + '-' + t.endTime)}">
-        ${escapeHtml(t.label || `${t.startTime}-${t.endTime}`)}
-      </div>`).join("")}</div>`;
+    const taken = new Set(lockSnap.docs.map((d) => d.data().slotId));
+    const available = templates.filter((t) => !taken.has(t.id)).length;
 
-  slotArea.querySelectorAll(".slot-btn:not(.taken)").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      slotArea.querySelectorAll(".slot-btn").forEach((b) => b.classList.remove("selected"));
-      btn.classList.add("selected");
-      selectedSlot = {
-        id: btn.dataset.slot, startTime: btn.dataset.start,
-        endTime: btn.dataset.end, label: btn.dataset.label,
-      };
-      document.getElementById("bookForm").classList.remove("hidden");
+    slotArea.innerHTML = `
+      <p class="slot-hint">${fmtDateHuman(date)}　可預約 ${available} / ${templates.length} 個時段</p>
+      <div class="slot-grid" role="group" aria-label="可選時段">
+        ${templates.map((t) => {
+          const label = t.label || `${t.startTime}-${t.endTime}`;
+          const isTaken = taken.has(t.id);
+          return `<button type="button" class="slot-btn ${isTaken ? "taken" : ""}"
+                    data-slot="${escapeHtml(t.id)}" aria-pressed="false"
+                    ${isTaken ? "disabled" : ""}>
+                    <span class="slot-label">${escapeHtml(label)}</span>
+                    <span class="slot-time">${escapeHtml(t.startTime)}–${escapeHtml(t.endTime)}</span>
+                    ${isTaken ? `<span class="slot-taken-tag">已被預約</span>` : ""}
+                  </button>`;
+        }).join("")}
+      </div>`;
+
+    slotArea.querySelectorAll(".slot-btn:not([disabled])").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        slotArea.querySelectorAll(".slot-btn").forEach((b) => {
+          b.classList.remove("selected");
+          b.setAttribute("aria-pressed", "false");
+        });
+        btn.classList.add("selected");
+        btn.setAttribute("aria-pressed", "true");
+        const t = templates.find((x) => x.id === btn.dataset.slot);
+        selectedSlot = {
+          id: t.id, startTime: t.startTime, endTime: t.endTime,
+          label: t.label || `${t.startTime}-${t.endTime}`,
+        };
+        $("bookForm").classList.remove("hidden");
+        $("applicantName").focus();
+      });
     });
-  });
+  } catch (err) {
+    slotArea.innerHTML = `<div class="alert error" role="alert">${escapeHtml(friendlyError(err))}</div>`;
+  }
 }
 
-document.addEventListener("click", (e) => {
-  if (e.target && e.target.id === "submitBooking") submitBooking();
-});
-
 async function submitBooking() {
-  const date = document.getElementById("bookDate").value;
-  const applicantName = document.getElementById("applicantName").value.trim();
-  const houseNumber = document.getElementById("houseNumber").value.trim();
-  const peopleCount = Number(document.getElementById("peopleCount").value);
-  const phone = document.getElementById("phone").value.trim();
-  const alertBox = document.getElementById("bookAlert");
+  const date = $("bookDate").value;
+  const applicantName = $("applicantName").value.trim();
+  const houseNumber = $("houseNumber").value.trim();
+  const peopleCount = Number($("peopleCount").value);
+  const phone = $("phone").value.trim();
+  const alertBox = $("bookAlert");
   alertBox.innerHTML = "";
 
   if (!selectedSlot) return showAlert(alertBox, "請先選擇時段");
-  if (!applicantName || !houseNumber) return showAlert(alertBox, "請填寫姓名與門牌號碼");
-  if (!peopleCount || peopleCount < 1) return showAlert(alertBox, "使用人數需至少 1 人");
+  if (!applicantName) { showAlert(alertBox, "請填寫姓名"); return $("applicantName").focus(); }
+  if (!houseNumber) { showAlert(alertBox, "請填寫門牌號碼"); return $("houseNumber").focus(); }
+  if (!peopleCount || peopleCount < 1) { showAlert(alertBox, "使用人數需至少 1 人"); return $("peopleCount").focus(); }
   if (currentFacility.capacity && peopleCount > currentFacility.capacity) {
-    return showAlert(alertBox, `使用人數不可超過容納人數（${currentFacility.capacity} 人）`);
+    showAlert(alertBox, `使用人數不可超過容納人數（${currentFacility.capacity} 人）`);
+    return $("peopleCount").focus();
   }
 
-  const submitBtn = document.getElementById("submitBooking");
+  const submitBtn = $("submitBooking");
   submitBtn.disabled = true;
   submitBtn.textContent = "送出中…";
 
-  try {
-    const { start: weekStart } = weekRangeOf(date);
-    const dailyUsageRef = doc(db, "unitDailyUsage", `${currentFacility.id}__${houseNumber}__${date}`);
-    const weeklyUsageRef = doc(db, "unitWeeklyUsage", `${currentFacility.id}__${houseNumber}__${weekStart}`);
+  const dailyRef = doc(db, "unitDailyUsage", `${currentFacility.id}__${houseNumber}__${date}`);
+  const weeklyRef = doc(db, "unitWeeklyUsage", `${currentFacility.id}__${houseNumber}__${weekStartOf(date)}`);
 
-    // 注意：Firestore 的 client transaction.get() 只接受單一文件參照、不支援查詢，
-    // 所以「同門牌次數上限」改用專屬計數文件（不含姓名/電話等個資）在交易內讀寫，
-    // 避免要求住戶端擁有列出整個 bookings 集合的權限（那會洩漏其他住戶的個資）。
+  try {
     const result = await runTransaction(db, async (tx) => {
-      const facilityRef = doc(db, "facilities", currentFacility.id);
-      const facilitySnap = await tx.get(facilityRef);
+      const facilitySnap = await tx.get(doc(db, "facilities", currentFacility.id));
       if (!facilitySnap.exists() || facilitySnap.data().status === "closed") {
-        throw new Error("此場地目前不開放預約");
+        throw new Error("FACILITY_CLOSED");
       }
       const fdata = facilitySnap.data();
 
@@ -206,8 +258,11 @@ async function submitBooking() {
         throw new Error("SLOT_TAKEN");
       }
 
-      const dailySnap = fdata.dailyLimitPerUnit ? await tx.get(dailyUsageRef) : null;
-      const weeklySnap = fdata.weeklyLimitPerUnit ? await tx.get(weeklyUsageRef) : null;
+      // 次數上限用專屬計數文件在交易內讀寫。Firestore 的 client transaction.get()
+      // 只接受單一文件參照、不支援查詢，而且計數文件不含個資，
+      // 住戶端才不必擁有列出整個 bookings 集合的權限。
+      const dailySnap = fdata.dailyLimitPerUnit ? await tx.get(dailyRef) : null;
+      const weeklySnap = fdata.weeklyLimitPerUnit ? await tx.get(weeklyRef) : null;
       const dailyCount = dailySnap?.exists() ? dailySnap.data().count : 0;
       const weeklyCount = weeklySnap?.exists() ? weeklySnap.data().count : 0;
       if (fdata.dailyLimitPerUnit && dailyCount >= fdata.dailyLimitPerUnit) throw new Error("DAILY_LIMIT");
@@ -215,9 +270,8 @@ async function submitBooking() {
 
       const status = fdata.bookingMode === "review" ? "pending_review" : "confirmed";
       const queryCode = generateQueryCode();
-      const bookingRef = doc(db, "bookings", queryCode);
 
-      tx.set(bookingRef, {
+      tx.set(doc(db, "bookings", queryCode), {
         facilityId: currentFacility.id, facilityName: fdata.name, date,
         slotId: selectedSlot.id, startTime: selectedSlot.startTime, endTime: selectedSlot.endTime,
         slotLabel: selectedSlot.label, applicantName, houseNumber, peopleCount,
@@ -227,10 +281,10 @@ async function submitBooking() {
         facilityId: currentFacility.id, date, slotId: selectedSlot.id,
         status, bookingId: queryCode, createdAt: serverTimestamp(),
       });
-      if (fdata.dailyLimitPerUnit) tx.set(dailyUsageRef, { count: dailyCount + 1 });
-      if (fdata.weeklyLimitPerUnit) tx.set(weeklyUsageRef, { count: weeklyCount + 1 });
+      if (fdata.dailyLimitPerUnit) tx.set(dailyRef, { count: dailyCount + 1 });
+      if (fdata.weeklyLimitPerUnit) tx.set(weeklyRef, { count: weeklyCount + 1 });
 
-      return { queryCode, status };
+      return { queryCode, status, date, slotLabel: selectedSlot.label, facilityName: fdata.name };
     });
 
     addDoc(collection(db, "bookingLogs"), {
@@ -238,94 +292,154 @@ async function submitBooking() {
       detail: { facilityId: currentFacility.id, date, slotId: selectedSlot.id }, timestamp: serverTimestamp(),
     }).catch(() => {});
 
-    showSuccess(result.queryCode, result.status);
+    showSuccess(result);
   } catch (err) {
     submitBtn.disabled = false;
     submitBtn.textContent = "送出預約";
-    const map = {
-      SLOT_TAKEN: "這個時段剛被別人訂走了，請重新選擇時段",
-      DAILY_LIMIT: "同一門牌今天在此場地的預約已達上限",
-      WEEKLY_LIMIT: "同一門牌本週在此場地的預約已達上限",
-    };
-    showAlert(alertBox, map[err.message] || `送出失敗：${err.message}`);
+    showAlert(alertBox, friendlyError(err));
+    if (err.message === "SLOT_TAKEN") loadSlots(); // 重新整理時段，讓住戶馬上看到最新狀態
   }
 }
 
-function weekRangeOf(dateStr) {
-  const d = new Date(dateStr + "T00:00:00");
-  const wd = isoWeekday(dateStr); // 1..7
-  const monday = new Date(d); monday.setDate(d.getDate() - (wd - 1));
-  const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6);
-  const fmt = (x) => x.toISOString().slice(0, 10);
-  return { start: fmt(monday), end: fmt(sunday) };
+function showAlert(box, msg) {
+  box.innerHTML = `<div class="alert error">${escapeHtml(msg)}</div>`;
 }
 
-function showAlert(box, msg) { box.innerHTML = `<div class="alert error">${escapeHtml(msg)}</div>`; }
-
-function showSuccess(queryCode, status) {
+function showSuccess({ queryCode, status, date, slotLabel, facilityName }) {
   bookingPanel.innerHTML = `
-    <div class="card">
+    <div class="card success-card">
+      <div class="success-icon" aria-hidden="true">✓</div>
       <h3>${status === "pending_review" ? "已送出，待物業審核" : "預約成功"}</h3>
-      <p>請截圖保存以下查詢碼，之後可用「查詢/取消」頁面查詢或取消此預約：</p>
-      <div class="query-code">${queryCode}</div>
-      ${status === "pending_review" ? `<div class="alert warn">此場地需物業審核，審核通過後才算確定。</div>` : ""}
-      <button class="btn secondary" onclick="location.reload()">再預約一筆</button>
+      <p class="success-detail">
+        ${escapeHtml(facilityName)}　${fmtDateHuman(date)}　${escapeHtml(slotLabel)}
+      </p>
+      <p class="code-hint">請保存以下查詢碼，用來查詢或取消這筆預約：</p>
+      <div class="query-code" id="queryCodeText">${escapeHtml(queryCode)}</div>
+      <button type="button" class="btn" id="copyCodeBtn">複製查詢碼</button>
+      <div id="copyResult" aria-live="polite"></div>
+      ${status === "pending_review"
+        ? `<div class="alert warn">此場地需物業審核，審核通過後才算確定。</div>` : ""}
+      <button type="button" class="btn secondary" id="bookAgainBtn">再預約一筆</button>
     </div>`;
+
+  $("copyCodeBtn").addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(queryCode);
+      $("copyResult").innerHTML = `<div class="alert ok">已複製到剪貼簿</div>`;
+    } catch {
+      // iOS Safari 在非使用者手勢或無 HTTPS 情境會擋下剪貼簿，退而求其次選取文字讓使用者自己複製
+      const range = document.createRange();
+      range.selectNodeContents($("queryCodeText"));
+      const sel = window.getSelection();
+      sel.removeAllRanges(); sel.addRange(range);
+      $("copyResult").innerHTML = `<div class="alert warn">請長按上方選取的文字複製</div>`;
+    }
+  });
+  $("bookAgainBtn").addEventListener("click", () => {
+    closeBookingPanel();
+    loadFacilities();
+  });
 }
 
 /* ---------- 查詢 / 取消 ---------- */
 
-document.getElementById("lookupBtn").addEventListener("click", doLookup);
+$("lookupBtn").addEventListener("click", doLookup);
+$("lookupCode").addEventListener("keydown", (e) => { if (e.key === "Enter") doLookup(); });
+$("lookupHouse").addEventListener("keydown", (e) => { if (e.key === "Enter") doLookup(); });
 
 async function doLookup() {
-  const code = document.getElementById("lookupCode").value.trim().toUpperCase();
-  const house = document.getElementById("lookupHouse").value.trim();
-  const result = document.getElementById("lookupResult");
-  result.innerHTML = "";
+  const code = $("lookupCode").value.trim().toUpperCase();
+  const house = $("lookupHouse").value.trim();
+  const result = $("lookupResult");
+  const btn = $("lookupBtn");
+
   if (!code || !house) {
     result.innerHTML = `<div class="alert error">請輸入查詢碼與門牌號碼</div>`;
     return;
   }
-  const snap = await getDoc(doc(db, "bookings", code));
-  if (!snap.exists()) {
-    result.innerHTML = `<div class="alert error">查無此預約，請確認查詢碼是否正確</div>`;
-    return;
-  }
-  const b = snap.data();
-  if (b.houseNumber !== house) {
-    result.innerHTML = `<div class="alert error">門牌號碼不相符</div>`;
-    return;
-  }
 
-  const canCancel = ["confirmed", "pending_review"].includes(b.status) && b.date >= todayStr();
-  result.innerHTML = `
-    <div class="card">
-      <h3>${escapeHtml(b.facilityName)}</h3>
-      <p>日期：${escapeHtml(b.date)}　時段：${escapeHtml(b.slotLabel || `${b.startTime}-${b.endTime}`)}</p>
-      <p>申請人：${escapeHtml(b.applicantName)}　門牌：${escapeHtml(b.houseNumber)}　人數：${b.peopleCount}</p>
-      <p>狀態：${fmtStatus(b.status)}</p>
-      ${canCancel ? `<button class="btn danger" id="cancelBtn">取消此預約</button>` : ""}
-      <div id="cancelAlert"></div>
-    </div>`;
+  btn.disabled = true;
+  btn.textContent = "查詢中…";
+  result.innerHTML = "";
+  try {
+    const snap = await getDoc(doc(db, "bookings", code));
+    // 查詢碼錯誤與門牌不符回報相同訊息，避免有人用查詢碼逐一試出哪些碼是有效的
+    if (!snap.exists() || snap.data().houseNumber !== house) {
+      result.innerHTML = `<div class="alert error">查無符合的預約，請確認查詢碼與門牌號碼是否正確。</div>`;
+      return;
+    }
 
-  if (canCancel) {
-    document.getElementById("cancelBtn").addEventListener("click", () => doCancel(code));
+    const b = snap.data();
+    const canCancel = ["confirmed", "pending_review"].includes(b.status) && b.date >= todayStr();
+    result.innerHTML = `
+      <div class="card">
+        <h3>${escapeHtml(b.facilityName)}</h3>
+        <dl class="detail-list">
+          <dt>日期</dt><dd>${fmtDateHuman(b.date)}</dd>
+          <dt>時段</dt><dd>${escapeHtml(b.slotLabel || `${b.startTime}-${b.endTime}`)}</dd>
+          <dt>申請人</dt><dd>${escapeHtml(b.applicantName)}</dd>
+          <dt>門牌</dt><dd>${escapeHtml(b.houseNumber)}</dd>
+          <dt>人數</dt><dd>${escapeHtml(String(b.peopleCount))} 人</dd>
+          <dt>狀態</dt><dd><span class="badge ${b.status}">${fmtStatus(b.status)}</span></dd>
+        </dl>
+        ${canCancel ? `<button type="button" class="btn danger" id="cancelBtn">取消此預約</button>` : ""}
+        <div id="cancelAlert" role="alert" aria-live="assertive"></div>
+      </div>`;
+    if (canCancel) $("cancelBtn").addEventListener("click", () => doCancel(code, b));
+  } catch (err) {
+    result.innerHTML = `<div class="alert error" role="alert">${escapeHtml(friendlyError(err))}</div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "查詢";
   }
 }
 
-async function doCancel(code) {
-  if (!confirm("確定要取消此預約嗎？")) return;
+async function doCancel(code, booking) {
+  if (!confirm("確定要取消此預約嗎？取消後這個時段會立即開放給其他住戶。")) return;
+  const btn = $("cancelBtn");
+  btn.disabled = true;
+  btn.textContent = "取消中…";
+
   try {
-    await updateDoc(doc(db, "bookings", code), { status: "cancelled", cancelledAt: serverTimestamp() });
+    // 順序不可調換：安全規則要求「預約已是取消狀態」才允許釋出時段鎖
+    await updateDoc(doc(db, "bookings", code), {
+      status: "cancelled", cancelledAt: serverTimestamp(),
+    });
+
+    // 釋出時段，讓別人馬上能訂；失敗也不影響取消本身（物業仍可在後台手動釋出）
+    await setDoc(doc(db, "slotLocks", slotLockId(booking.facilityId, booking.date, booking.slotId)), {
+      facilityId: booking.facilityId, date: booking.date, slotId: booking.slotId,
+      status: "cancelled", bookingId: code, createdAt: serverTimestamp(),
+    }).catch(() => {});
+
+    // 退還次數額度，否則住戶取消後仍會被上限擋住
+    await refundUsage(booking).catch(() => {});
+
     addDoc(collection(db, "bookingLogs"), {
       targetType: "booking", targetId: code, action: "cancel", actor: "resident",
-      detail: {}, timestamp: serverTimestamp(),
+      detail: { facilityId: booking.facilityId, date: booking.date }, timestamp: serverTimestamp(),
     }).catch(() => {});
-    document.getElementById("lookupResult").innerHTML =
-      `<div class="alert ok">已取消。時段的正式釋出將由物業協助處理，若急需該時段請聯繫社區辦公室。</div>`;
+
+    $("lookupResult").innerHTML =
+      `<div class="alert ok" role="status">已取消預約，該時段已重新開放預約。</div>`;
   } catch (err) {
-    document.getElementById("cancelAlert").innerHTML = `<div class="alert error">取消失敗：${escapeHtml(err.message)}</div>`;
+    btn.disabled = false;
+    btn.textContent = "取消此預約";
+    $("cancelAlert").innerHTML = `<div class="alert error">${escapeHtml(friendlyError(err))}</div>`;
   }
+}
+
+async function refundUsage(b) {
+  const refs = [
+    doc(db, "unitDailyUsage", `${b.facilityId}__${b.houseNumber}__${b.date}`),
+    doc(db, "unitWeeklyUsage", `${b.facilityId}__${b.houseNumber}__${weekStartOf(b.date)}`),
+  ];
+  await Promise.all(refs.map((ref) => runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref);
+    if (snap.exists() && snap.data().count > 0) {
+      tx.set(ref, { count: snap.data().count - 1 });
+    }
+  }).catch(() => {})));
 }
 
 loadFacilities();

@@ -12,6 +12,26 @@
     "rewrites": [
       { "source": "/admin", "destination": "/admin.html" },
       { "source": "/", "destination": "/index.html" }
+    ],
+    "headers": [
+      {
+        "comment": "預設套用到所有路徑。必須用 ** 而不是 **/*.html，因為 / 與 /admin 是經 rewrite 才對應到 html 檔，路徑本身不含副檔名。",
+        "source": "**",
+        "headers": [
+          { "key": "Cache-Control", "value": "no-cache" },
+          { "key": "X-Content-Type-Options", "value": "nosniff" },
+          { "key": "X-Frame-Options", "value": "SAMEORIGIN" },
+          { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+          { "key": "Permissions-Policy", "value": "geolocation=(), microphone=(), camera=()" }
+        ]
+      },
+      {
+        "comment": "靜態資源可以快取，放在後面覆蓋上面的 no-cache",
+        "source": "**/*.@(css|js)",
+        "headers": [
+          { "key": "Cache-Control", "value": "public, max-age=3600, must-revalidate" }
+        ]
+      }
     ]
   }
 }

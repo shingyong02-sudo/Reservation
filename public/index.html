@@ -3,45 +3,56 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="社區公共設施線上預約：棋藝室、KTV室、健身室、親子育樂室、宴會廳、SPA室。">
+<meta name="theme-color" content="#1d4ed8">
 <title>社區設施預約系統</title>
+<!-- 提前建立連線，可省下首次載入 Firebase SDK 與資料的 DNS/TLS 交握時間 -->
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
+<link rel="modulepreload" href="js/app.js">
+<link rel="modulepreload" href="js/firebase-config.js">
+<link rel="modulepreload" href="js/shared.js">
 <link rel="stylesheet" href="css/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏘️</text></svg>">
 </head>
 <body>
 <header class="topbar">
-  <h1>🏘️ 社區設施預約系統</h1>
-  <a href="/admin" style="color:#fff; font-size:.85rem; opacity:.85;">物業後台</a>
+  <h1>🏘️ 社區設施預約</h1>
+  <a href="/admin">物業後台</a>
 </header>
 
-<nav class="tabs">
-  <button id="tabBook" class="active">預約場地</button>
-  <button id="tabLookup">查詢／取消</button>
+<nav class="tabs" role="tablist" aria-label="功能切換">
+  <button type="button" id="tabBook" class="active" role="tab" aria-selected="true" aria-controls="viewBook">預約場地</button>
+  <button type="button" id="tabLookup" role="tab" aria-selected="false" aria-controls="viewLookup">查詢／取消</button>
 </nav>
 
 <main>
-  <section id="viewBook">
+  <section id="viewBook" role="tabpanel" aria-labelledby="tabBook">
     <div id="facilityGrid" class="grid"></div>
     <div id="bookingPanel" class="hidden"></div>
   </section>
 
-  <section id="viewLookup" class="hidden">
+  <section id="viewLookup" class="hidden" role="tabpanel" aria-labelledby="tabLookup">
     <div class="card">
       <h3>查詢／取消預約</h3>
+      <p class="hint">請輸入預約完成時取得的查詢碼，以及當時填寫的門牌號碼。</p>
       <div class="row">
         <div>
-          <label>查詢碼</label>
-          <input type="text" id="lookupCode" placeholder="8 碼查詢碼">
+          <label for="lookupCode">查詢碼</label>
+          <input type="text" id="lookupCode" inputmode="latin" autocapitalize="characters"
+                 autocomplete="off" maxlength="8" placeholder="8 碼查詢碼">
         </div>
         <div>
-          <label>門牌號碼</label>
-          <input type="text" id="lookupHouse" placeholder="預約時填寫的門牌號碼">
+          <label for="lookupHouse">門牌號碼</label>
+          <input type="text" id="lookupHouse" autocomplete="off" placeholder="預約時填寫的門牌號碼">
         </div>
       </div>
-      <button class="btn" id="lookupBtn">查詢</button>
-      <div id="lookupResult"></div>
+      <button type="button" class="btn" id="lookupBtn">查詢</button>
+      <div id="lookupResult" aria-live="polite"></div>
     </div>
   </section>
 
-  <p class="footer-note">送出預約後請務必保存查詢碼，遺失查詢碼需請物業協助查詢。</p>
+  <p class="footer-note">送出預約後請務必保存查詢碼；遺失查詢碼需請物業協助查詢。</p>
 </main>
 
 <script type="module" src="js/app.js"></script>

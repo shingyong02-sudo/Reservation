@@ -3,45 +3,54 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#1d4ed8">
 <title>物業後台 — 社區設施預約系統</title>
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
+<link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin>
+<link rel="modulepreload" href="js/admin.js">
+<link rel="modulepreload" href="js/firebase-config.js">
+<link rel="modulepreload" href="js/shared.js">
 <link rel="stylesheet" href="css/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛠️</text></svg>">
 </head>
 <body>
 <header class="topbar">
   <h1>🛠️ 物業後台</h1>
-  <div id="headerRight" style="font-size:.85rem; display:flex; align-items:center; gap:10px;">
+  <div id="headerRight" class="hidden" style="display:flex; align-items:center; gap:10px; font-size:.85rem;">
     <span id="currentUserLabel"></span>
-    <button class="btn small secondary" id="logoutBtn" style="margin:0;">登出</button>
+    <button type="button" class="btn small secondary" id="logoutBtn" style="margin:0;">登出</button>
   </div>
 </header>
 
 <main>
   <section id="loginView">
-    <div class="card" style="max-width:360px;margin:40px auto;">
+    <div class="card" style="max-width:380px; margin:32px auto;">
       <h3>物業登入</h3>
-      <label>Email</label>
-      <input type="email" id="loginEmail">
-      <label>密碼</label>
-      <input type="password" id="loginPassword">
-      <div id="loginAlert"></div>
-      <button class="btn" id="loginBtn">登入</button>
-      <p class="footer-note">尚未有帳號請先於 Firebase Console 的 Authentication 建立管理員帳號</p>
+      <label for="loginEmail">Email</label>
+      <input type="email" id="loginEmail" autocomplete="username" inputmode="email">
+      <label for="loginPassword">密碼</label>
+      <input type="password" id="loginPassword" autocomplete="current-password">
+      <div id="loginAlert" role="alert" aria-live="assertive"></div>
+      <button type="button" class="btn" id="loginBtn">登入</button>
+      <p class="footer-note">帳號由社區管理者在 Firebase Console 建立。</p>
     </div>
   </section>
 
   <section id="appView" class="hidden">
-    <nav class="tabs" style="margin:-16px -16px 16px;">
-      <button id="tab-dashboard" class="active">儀表板</button>
-      <button id="tab-facilities">場地管理</button>
-      <button id="tab-equipment">設備管理</button>
-      <button id="tab-bookings">預約管理</button>
-      <button id="tab-logs">操作紀錄</button>
+    <nav class="tabs" role="tablist" aria-label="後台功能" style="margin:-16px -16px 16px;">
+      <button type="button" id="tab-dashboard" class="active" role="tab" aria-selected="true">儀表板</button>
+      <button type="button" id="tab-facilities" role="tab" aria-selected="false">場地管理</button>
+      <button type="button" id="tab-equipment" role="tab" aria-selected="false">設備管理</button>
+      <button type="button" id="tab-bookings" role="tab" aria-selected="false">預約管理</button>
+      <button type="button" id="tab-logs" role="tab" aria-selected="false">操作紀錄</button>
     </nav>
-    <div id="view-dashboard"></div>
-    <div id="view-facilities" class="hidden"></div>
-    <div id="view-equipment" class="hidden"></div>
-    <div id="view-bookings" class="hidden"></div>
-    <div id="view-logs" class="hidden"></div>
+    <div id="view-dashboard" role="tabpanel"></div>
+    <div id="view-facilities" class="hidden" role="tabpanel"></div>
+    <div id="view-equipment" class="hidden" role="tabpanel"></div>
+    <div id="view-bookings" class="hidden" role="tabpanel"></div>
+    <div id="view-logs" class="hidden" role="tabpanel"></div>
   </section>
 </main>
 
