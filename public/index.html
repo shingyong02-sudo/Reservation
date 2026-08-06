@@ -3,57 +3,144 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="社區公共設施線上預約：棋藝室、KTV室、健身室、親子育樂室、宴會廳、SPA室。">
-<meta name="theme-color" content="#1d4ed8">
-<title>社區設施預約系統</title>
-<!-- 提前建立連線，可省下首次載入 Firebase SDK 與資料的 DNS/TLS 交握時間 -->
+<meta name="description" content="億學造鎮社區公共設施線上預約：棋藝室、KTV 室、健身室、親子育樂室、宴會廳、SPA 室。每日 08:00–22:00，每時段 2 小時。">
+<meta name="theme-color" content="#c8a04a">
+<title>億學造鎮社區 · 公共設施預約系統</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
 <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
 <link rel="modulepreload" href="js/app.js">
 <link rel="modulepreload" href="js/firebase-config.js">
 <link rel="modulepreload" href="js/shared.js">
 <link rel="stylesheet" href="css/style.css">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏘️</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='3' fill='%239e3b2e'/><text x='16' y='24' font-size='22' text-anchor='middle' fill='%23fbf8f1' font-family='serif'>億</text></svg>">
 </head>
 <body>
+
 <header class="topbar">
-  <h1>🏘️ 社區設施預約</h1>
-  <a href="/admin">物業後台</a>
+  <a class="brand" href="#home" id="brandLink">
+    <span class="seal" aria-hidden="true"><span>億</span><span>學</span><span>造</span><span>鎮</span></span>
+    <span>
+      <span class="brand-name">億學造鎮社區</span>
+      <span class="brand-sub">公共設施預約系統</span>
+    </span>
+  </a>
+  <nav aria-label="主選單">
+    <button type="button" class="linklike" data-goto="facilities">場地一覽</button>
+    <button type="button" class="linklike" data-goto="rules">預約規則</button>
+    <button type="button" class="linklike" id="navLookup">查詢／取消</button>
+    <a href="/admin" class="quiet">物業後台</a>
+  </nav>
 </header>
 
-<nav class="tabs" role="tablist" aria-label="功能切換">
-  <button type="button" id="tabBook" class="active" role="tab" aria-selected="true" aria-controls="viewBook">預約場地</button>
-  <button type="button" id="tabLookup" role="tab" aria-selected="false" aria-controls="viewLookup">查詢／取消</button>
-</nav>
-
 <main>
-  <section id="viewBook" role="tabpanel" aria-labelledby="tabBook">
-    <div id="facilityGrid" class="grid"></div>
-    <div id="bookingPanel" class="hidden"></div>
-  </section>
-
-  <section id="viewLookup" class="hidden" role="tabpanel" aria-labelledby="tabLookup">
-    <div class="card">
-      <h3>查詢／取消預約</h3>
-      <p class="hint">請輸入預約完成時取得的查詢碼，以及當時填寫的門牌號碼。</p>
-      <div class="row">
-        <div>
-          <label for="lookupCode">查詢碼</label>
-          <input type="text" id="lookupCode" inputmode="latin" autocapitalize="characters"
-                 autocomplete="off" maxlength="8" placeholder="8 碼查詢碼">
-        </div>
-        <div>
-          <label for="lookupHouse">門牌號碼</label>
-          <input type="text" id="lookupHouse" autocomplete="off" placeholder="預約時填寫的門牌號碼">
+  <!-- ========== 首頁 ========== -->
+  <section id="viewHome">
+    <div class="hero">
+      <div>
+        <div class="overline">億學造鎮社區管理委員會</div>
+        <h1>公共設施線上預約</h1>
+        <p class="lead">六大公共場地開放住戶線上預約。即時查看各時段狀態，完成預約後憑查詢碼查詢或取消。</p>
+        <div class="hero-actions">
+          <button type="button" class="btn primary lg" data-goto="facilities">立即預約場地</button>
+          <button type="button" class="btn secondary lg" id="heroLookup">查詢／取消預約</button>
         </div>
       </div>
-      <button type="button" class="btn" id="lookupBtn">查詢</button>
-      <div id="lookupResult" aria-live="polite"></div>
+      <div class="card ruled">
+        <div class="code-label">開放資訊</div>
+        <div class="spec-list">
+          <div><span class="k">開放時間</span><span class="v">每日 08:00 – 22:00</span></div>
+          <div><span class="k">每時段長度</span><span class="v">2 小時</span></div>
+          <div><span class="k">同時段限制</span><span class="v">每戶限一項設施</span></div>
+          <div><span class="k">開放預約範圍</span><span class="v" id="specWindow">14 天內</span></div>
+        </div>
+      </div>
     </div>
+
+    <section class="section" id="noticeSection">
+      <div class="notice-board">
+        <div class="section-head" style="margin-bottom:8px">
+          <h2 style="font-size:var(--text-xl)">社區公告</h2>
+          <span class="en">ANNOUNCEMENTS</span>
+        </div>
+        <div id="noticeList"></div>
+      </div>
+    </section>
+
+    <section class="section" id="facilities">
+      <div class="section-head">
+        <h2>場地一覽</h2><span class="en">FACILITIES</span>
+      </div>
+      <div id="facilityGrid" class="facility-grid"></div>
+    </section>
+
+    <section class="section" id="rules">
+      <div class="section-head">
+        <h2>預約規則</h2><span class="en">RULES</span>
+      </div>
+      <div class="rules-grid">
+        <div class="rule">
+          <h3>一、開放時間</h3>
+          <p>各場地每日 08:00 至 22:00 開放，共七個時段。</p>
+        </div>
+        <div class="rule">
+          <h3>二、時段長度</h3>
+          <p>每時段 2 小時，屆時請將場地恢復原狀後離場。</p>
+        </div>
+        <div class="rule">
+          <h3>三、同時段限制</h3>
+          <p>同一時段每戶限預約一項設施，重複預約系統將擋下。</p>
+        </div>
+        <div class="rule">
+          <h3>四、查詢碼</h3>
+          <p>預約完成請保存查詢碼；查詢與取消皆須憑碼辦理。</p>
+        </div>
+      </div>
+    </section>
   </section>
 
-  <p class="footer-note">送出預約後請務必保存查詢碼；遺失查詢碼需請物業協助查詢。</p>
+  <!-- ========== 預約流程 ========== -->
+  <section id="viewBooking" class="hidden">
+    <div class="steps" id="stepBar"></div>
+    <div id="bookingBody"></div>
+  </section>
+
+  <!-- ========== 查詢／取消 ========== -->
+  <section id="viewLookup" class="hidden">
+    <div class="row" style="align-items:stretch">
+      <div class="card" style="flex:1 1 320px">
+        <h3>查詢／取消預約</h3>
+        <p style="font-size:var(--text-sm);color:var(--ink-500);margin:0 0 20px">請輸入預約完成時取得的查詢碼，以及當時填寫的門牌號碼。</p>
+        <div class="field">
+          <label for="lookupCode">查詢碼</label>
+          <input type="text" id="lookupCode" inputmode="latin" autocapitalize="characters"
+                 autocomplete="off" maxlength="8" placeholder="例：YX-8F2K6">
+        </div>
+        <div class="field">
+          <label for="lookupHouse">門牌號碼</label>
+          <input type="text" id="lookupHouse" autocomplete="off" placeholder="例：A 棟 12 樓之 3">
+        </div>
+        <button type="button" class="btn primary block" id="lookupBtn">查詢預約</button>
+        <p class="hint">遺失查詢碼請洽物業管理中心 <span class="contact-phone">02-1234-5678</span> 協助查詢。</p>
+      </div>
+      <div id="lookupResult" style="flex:1 1 320px" aria-live="polite"></div>
+    </div>
+  </section>
 </main>
+
+<footer class="site-footer">
+  <div class="footer-inner">
+    <div class="brand">
+      <span class="seal sm" aria-hidden="true"><span>億</span><span>學</span><span>造</span><span>鎮</span></span>
+      <div>
+        <div class="org">億學造鎮社區管理委員會</div>
+        <div class="meta">物業管理中心 <span class="contact-phone">02-1234-5678</span> · 服務時間 09:00 – 18:00</div>
+      </div>
+    </div>
+    <div class="meta">© 2026 億學造鎮社區 · <a href="/admin">物業後台</a></div>
+  </div>
+</footer>
 
 <script type="module" src="js/app.js"></script>
 </body>

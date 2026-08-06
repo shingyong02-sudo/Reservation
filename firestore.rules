@@ -7,6 +7,12 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    // 社區公告：任何人可讀，僅登入的物業帳號可寫
+    match /announcements/{id} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
     // 場地主檔：任何人可讀，僅登入的物業帳號可寫
     match /facilities/{facilityId} {
       allow read: if true;
@@ -32,8 +38,7 @@ service cloud.firestore {
       // 1. 物業（已登入）可任意調整
       // 2. 已取消的鎖可被別人重新佔用
       // 3. 對應的預約已是 cancelled/rejected 時，任何人都可把鎖釋出
-      //    （改成 cancelled）——因為此時擋著時段沒有意義，且無法用來破壞
-      //    別人的有效預約，住戶取消後時段即可自動回到可預約狀態
+      //    （此時擋著時段沒有意義，且無法用來破壞別人的有效預約）
       allow update: if request.auth != null
                     || (resource.data.status == 'cancelled'
                         && request.resource.data.status in ['confirmed', 'pending_review'])
@@ -43,9 +48,23 @@ service cloud.firestore {
       allow delete: if request.auth != null;
     }
 
+    // 同時段跨場地佔位：doc id = houseNumber__date__startTime
+    // 用來實作「同一時段每戶限預約一項設施」。只存場地代號與預約編號，
+    // 不含姓名或電話；且不開放 list，無法被拿來列舉住戶。
+    match /unitSlotHolds/{id} {
+      allow get: if true;
+      allow list: if request.auth != null;
+      allow create: if true;
+      allow update: if request.auth != null;
+      // 對應的預約已取消時，任何人都可清掉這筆佔位（否則該戶會被自己的舊預約卡住）
+      allow delete: if request.auth != null
+                    || get(/databases/$(database)/documents/bookings/$(resource.data.bookingId)).data.status
+                       in ['cancelled', 'rejected'];
+    }
+
     // 同門牌單日/單週使用量計數器：doc id = facilityId__houseNumber__date(或當週週一)
-    // 只存數字、不含個資，讓住戶端可在交易內讀寫，而不需要列出整個 bookings 集合。
-    // 只允許 +1／-1，避免任何人把 count 直接改成 0 來繞過預約次數上限。
+    // 只存數字、不含個資，讓住戶端可在交易內讀寫，
+    // 而不需要列出整個 bookings 集合。只允許 ±1 且不得為負。
     match /unitDailyUsage/{id} {
       allow read: if true;
       allow create: if request.resource.data.keys().hasOnly(['count'])
@@ -75,7 +94,7 @@ service cloud.firestore {
       allow list: if request.auth != null;
       allow create: if request.resource.data.keys().hasAll(
                         ['facilityId', 'date', 'slotId', 'startTime', 'endTime',
-                         'applicantName', 'houseNumber', 'peopleCount', 'status', 'createdAt']
+                         'applicantName', 'houseNumber', 'status', 'createdAt']
                       )
                       && request.resource.data.status in ['confirmed', 'pending_review'];
       // 住戶憑查詢碼可自行取消（僅能改 status/cancelledAt）；物業登入後可任意調整

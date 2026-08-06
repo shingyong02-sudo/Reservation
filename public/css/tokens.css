@@ -1,0 +1,123 @@
+/* ============================================================
+   億學造鎮社區預約系統 — 設計權杖
+   來源：Claude Design「黃三郎 Tea House」設計系統
+   （專案 5d7d41d9-41a1-4437-9c91-340231fadca0）
+   暖紙感底色、茶金主色、印泥朱紅、青瓷綠；不使用冷灰與藍色。
+   ============================================================ */
+
+/* 字體改用 preconnect + display=swap，避免字體載入時整頁空白 */
+@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;500;600;700;900&family=Noto+Sans+TC:wght@300;400;500;700&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400&display=swap');
+
+:root {
+  /* ---- 墨（暖黑與褐）：文字與結構 ---- */
+  --ink-900: #1c1814;
+  --ink-800: #2b251f;
+  --ink-700: #3d352c;
+  --ink-600: #574b3e;
+  --ink-500: #6f6253;
+  --ink-400: #8a7c6a;
+  --ink-300: #b3a691;
+  --ink-200: #d4c9b6;
+
+  /* ---- 紙（暖米）：介面底色 ---- */
+  --paper-50:  #fbf8f1;
+  --paper-100: #f6f0e4;
+  --paper-200: #efe6d5;
+  --paper-300: #e6d9c2;
+
+  /* ---- 茶金：主品牌色 ---- */
+  --gold-700: #8a6418;
+  --gold-600: #a87d20;
+  --gold-500: #c8a04a;
+  --gold-400: #d8b96f;
+  --gold-300: #e7d3a1;
+  --gold-200: #f1e4c6;
+
+  /* ---- 印泥朱紅：節制使用 ---- */
+  --seal-700: #7e2c22;
+  --seal-600: #9e3b2e;
+  --seal-500: #b8503f;
+
+  /* ---- 青瓷：次要輔色 ---- */
+  --jade-700: #3f5a4d;
+  --jade-600: #5a7a6b;
+  --jade-500: #7d9a8b;
+
+  --white: #ffffff;
+
+  /* ---- 語意別名 ---- */
+  --text-strong:  var(--ink-900);
+  --text-body:    var(--ink-600);
+  --text-muted:   var(--ink-400);
+  --text-on-ink:  var(--paper-100);
+
+  --surface-page:   var(--paper-100);
+  --surface-raised: var(--paper-50);
+  --surface-card:   var(--white);
+  --surface-sunken: var(--paper-200);
+  --surface-ink:    var(--ink-900);
+
+  --border-hairline: var(--paper-300);
+  --border-strong:   var(--ink-200);
+  --border-gold:     var(--gold-400);
+  --focus-ring:      var(--gold-700);
+
+  /* ---- 字體 ---- */
+  --font-serif: 'Noto Serif TC', 'Cormorant Garamond', Georgia, serif;
+  --font-body:  'Noto Sans TC', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono:  ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  --text-2xs:  0.6875rem;
+  --text-xs:   0.75rem;
+  --text-sm:   0.875rem;
+  --text-base: 1rem;
+  --text-lg:   1.125rem;
+  --text-xl:   1.375rem;
+  --text-2xl:  1.75rem;
+  --text-3xl:  2.25rem;
+  --text-4xl:  3rem;
+
+  --leading-tight:  1.12;
+  --leading-snug:   1.3;
+  --leading-normal: 1.6;
+
+  --tracking-wide:   0.04em;
+  --tracking-wider:  0.12em;
+
+  /* ---- 間距（8px 網格）---- */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+  --space-8: 4rem;
+
+  /* ---- 圓角：克制，古典文具略微柔化 ---- */
+  --radius-sm:   2px;
+  --radius-md:   4px;
+  --radius-lg:   8px;
+  --radius-pill: 999px;
+
+  /* ---- 陰影：暖調、低、紙疊紙，絕不生硬 ---- */
+  --shadow-xs: 0 1px 2px rgba(28, 24, 20, 0.06);
+  --shadow-sm: 0 1px 3px rgba(28, 24, 20, 0.08), 0 1px 2px rgba(28, 24, 20, 0.04);
+  --shadow-md: 0 4px 12px rgba(28, 24, 20, 0.08), 0 2px 4px rgba(28, 24, 20, 0.05);
+  --shadow-lg: 0 12px 32px rgba(28, 24, 20, 0.12), 0 4px 8px rgba(28, 24, 20, 0.06);
+
+  /* ---- 動態：沉穩，不彈跳 ---- */
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur-fast: 140ms;
+  --dur-base: 220ms;
+
+  --container-max: 1200px;
+
+  /* 觸控目標最小尺寸 */
+  --touch: 44px;
+}
