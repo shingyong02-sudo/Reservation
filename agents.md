@@ -15,10 +15,12 @@
 - [x] 階段三：Firebase 專案設定（Firestore 資料結構、安全規則，已部署至 `reservation-98067`）
 - [x] 階段四：住戶端預約頁面（`public/index.html`，多載具響應式，已測試預約/查詢/取消流程）
 - [x] 階段五：物業後台管理介面（`public/admin.html`，場地/設備/時段/預約/操作紀錄，程式碼完成，**尚未建管理員帳號無法登入測試**）
-- [ ] 階段六：測試與上線（住戶端已驗證；後台待開通 Authentication＋建帳號後驗證；GitHub repo 目前仍是 Public 未改 Private）
+- [x] 階段六：全面優化（見 `docs/optimization-report.md`）——bug 修正、安全強化、無障礙、行動裝置、效能
+- [ ] 階段七：後台實測與上線（住戶端已完整驗證；後台待使用者自行登入點測；GitHub repo 仍是 Public）
 
 ## 資料夾結構
 - `docs/system-blueprint.md`：系統規劃藍圖（架構圖、資料模型、頁面規劃、開發順序）
+- `docs/optimization-report.md`：優化報告（bug 修正、滲透測試結果、無障礙、效能、已知限制）
 - `firestore.rules`：Firestore 安全規則（已部署）
 - `firebase.json` / `.firebaserc`：Firebase Hosting/Firestore 設定（連到 my-teaching-tools-87a6d）
 - `public/index.html` + `public/js/app.js`：住戶預約端

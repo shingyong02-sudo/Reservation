@@ -3,34 +3,35 @@
 > 任何 Agent、任何電腦接手前**必讀**；收工時**必更新**。本檔只放交接必需的精簡資訊，詳細脈絡放 Obsidian（若有 L3）。
 
 ## ⏯️ 目前做到哪
-已從 `my-teaching-tools-87a6d` **遷移到杏永自己的 Firebase 專案 `reservation-98067`**（Firestore 位於 asia-east1）並完成部署：
-- Firestore 資料庫、安全規則、6 個場地種子資料（含時段範本與示範設備）全部就緒
-- 新 Web App 已註冊，`public/js/firebase-config.js` 已指向新專案
-- 已部署 Hosting：https://reservation-98067.web.app
-- 在新專案上已實測住戶端「預約→取得查詢碼→查詢」流程，成功（測試資料已清除）
-- 物業後台程式碼完成，**Authentication 尚未開通、無管理員帳號，無法登入測試**
+已完成**全面網站優化**並部署上線（commit 9c5c0e0）。完整內容見 `docs/optimization-report.md`：
+- 修掉 4 個真實 bug（時區導致週計數錯一天、儀表板設備警示靜默失效、查詢碼用 Math.random、時段標籤未跳脫）
+- 補上 3 項產品缺口（住戶取消後自動釋出時段、自動退還次數額度、查詢碼一鍵複製）
+- 安全規則收緊並通過滲透測試（8 項未登入攻擊嘗試全數擋下）
+- 無障礙達 WCAG AA、行動裝置 375px 零水平溢出、觸控目標 44px
+- production 實測：18KB、16 請求、約 1.85 秒載入、控制台零錯誤
 
 ## 🚦 目前狀態
-- 可運行：住戶端已在新專案驗證可用
-- 未驗證：物業後台登入後的所有功能（場地/設備/時段 CRUD、預約審核、操作紀錄）
-- GitHub repo `shingyong02-sudo/Reservation` 目前仍是 **Public**
-- 舊專案 `my-teaching-tools-87a6d` 裡還留著先前的測試資料與 Hosting（未清除，如不需要可自行刪除）
+- **住戶端已完整驗證**：預約 → 查詢碼 → 查詢 → 取消 → 時段自動釋出 → 額度退還，全部在 production 跑通
+- **物業後台仍未實測登入後功能**：Agent 依安全規則不能替使用者輸入密碼，需由使用者自行登入點測
+- 管理員帳號：`jnfakimo@gmail.com`（Authentication 已開通）
+- 使用者留了一筆測試預約 `5JBQX3U6`（棋藝室／1111／11111／上午場）尚未清除
+- GitHub repo `shingyong02-sudo/Reservation` 仍是 **Public**
 
 ## ➡️ 下一步
-1. **使用者需在 Firebase Console 開通 Authentication 並建立管理員帳號**（我不經手密碼）：
-   - https://console.firebase.google.com/project/reservation-98067/authentication/providers
-   - 「開始使用」→ 啟用「電子郵件/密碼」→ 到 Users 分頁新增使用者
-2. 建好後回報，由 Agent 用該帳號登入 `/admin` 實測後台全部功能並抓 bug
-3. 已知限制待確認是否要修：住戶自行取消預約後，時段鎖不會自動釋出（需物業在後台按「釋出時段」）；同門牌次數上限的用量計數器在取消後不會退還額度
-4. 若功能驗證無誤，考慮把 GitHub repo 改為 Private
+1. **使用者自行登入 `/admin` 點測後台六個模組**（先前已給過測試清單：儀表板 → 場地管理 → 設備管理 → 預約管理 → 操作紀錄），有錯誤或畫面異常回報給 Agent 修
+2. 特別要驗的是**設備管理**：把 KTV室「點歌主機」標維修中，確認住戶端 KTV室 立刻停止開放；再把「無線麥克風」標維修中，確認住戶端不受影響（非必要設備）
+3. 測完清掉測試預約 `5JBQX3U6`
+4. 考慮把 GitHub repo 改為 Private
+5. `docs/optimization-report.md` 第八節列了後續可做的項目（深色模式、住戶身分驗證、預約通知、場地照片）
 
 ## ⚠️ 注意事項
 - 專案資料夾在 Google 雲端硬碟（`G:\我的雲端硬碟\AI\Reservation`），換電腦前請確認同步完成
-- Firebase 專案 `reservation-98067` 由 **shingyong02@gmail.com** 擁有，jnfakimo 是被邀請的協作擁有者。CLI 端因 `FIREBASE_TOKEN` 環境變數存在，一律以 jnfakimo 身分認證（`--account` 參數會被該變數覆蓋）
-- billing 未啟用（Spark 方案），架構刻意設計為不需要 Cloud Functions，全部靠 Firestore client transaction + 安全規則
+- Firebase 專案 `reservation-98067` 由 **shingyong02@gmail.com** 擁有，jnfakimo 是協作擁有者。CLI 因 `FIREBASE_TOKEN` 環境變數存在，一律以 jnfakimo 身分認證（`--account` 會被覆蓋）
+- billing 未啟用（Spark 方案），架構刻意不依賴 Cloud Functions，全部靠 Firestore client transaction + 安全規則
+- **次數上限在免登入前提下無法真正強制**（換個門牌就繞過），這是刻意的取捨，理由寫在 `docs/optimization-report.md` 第三節
 - 本地測試：背景執行 `python -m http.server 8899`（cwd 需為 `public/`），再用 `.claude/launch.json` 的 `reservation` 設定 attach 到 `http://localhost:8899`
 
 ## 🕐 最後更新
-- 時間：2026-08-06 12:20
+- 時間：2026-08-06 13:40
 - 更新者：Claude Code @ DESKTOP-0CFB6UK
-- Git push：待推送
+- Git push：✅ 已推（main 分支，commit 9c5c0e0）
