@@ -73,7 +73,7 @@ service cloud.firestore {
     match /slotLocks/{lockId} {
       allow read: if true;
       allow create: if isActive()
-                    && request.resource.id == request.resource.data.facilityId + '__' + request.resource.data.date + '__' + request.resource.data.slotId
+                    && lockId == request.resource.data.facilityId + '__' + request.resource.data.date + '__' + request.resource.data.slotId
                     && request.resource.data.status in ['confirmed', 'pending_review']
                     && exists(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId))
                     && get(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.uid == request.auth.uid;
@@ -94,7 +94,7 @@ service cloud.firestore {
       allow get: if isActive();
       allow list: if isStaff();
       allow create: if isActive()
-                    && request.resource.id == request.auth.uid + '__' + request.resource.data.date + '__' + request.resource.data.startTime
+                    && id == request.auth.uid + '__' + request.resource.data.date + '__' + request.resource.data.startTime
                     && request.resource.data.uid == request.auth.uid
                     && exists(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId))
                     && get(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.uid == request.auth.uid;
@@ -109,12 +109,12 @@ service cloud.firestore {
     // doc id 以 uid 為主鍵，住戶登入後才寫得動，
     // 且只允許 ±1、不得為負，無法自行歸零繞過上限。
     match /unitDailyUsage/{id} {
-      allow read: if isActive() && (isStaff() || id.split('__')[1] == request.auth.uid);
-      allow create: if isActive() && id.split('__')[1] == request.auth.uid
+      allow read: if isActive() && (isStaff() || id.matches('^.+__' + request.auth.uid + '__.+$'));
+      allow create: if isActive() && id.matches('^.+__' + request.auth.uid + '__.+$')
                     && request.resource.data.keys().hasOnly(['count'])
                     && request.resource.data.count == 1;
       allow update: if isStaff()
-                    || (isActive() && id.split('__')[1] == request.auth.uid
+                    || (isActive() && id.matches('^.+__' + request.auth.uid + '__.+$')
                         && request.resource.data.keys().hasOnly(['count'])
                         && (request.resource.data.count == resource.data.count + 1
                             || request.resource.data.count == resource.data.count - 1)
@@ -122,12 +122,12 @@ service cloud.firestore {
       allow delete: if isStaff();
     }
     match /unitWeeklyUsage/{id} {
-      allow read: if isActive() && (isStaff() || id.split('__')[1] == request.auth.uid);
-      allow create: if isActive() && id.split('__')[1] == request.auth.uid
+      allow read: if isActive() && (isStaff() || id.matches('^.+__' + request.auth.uid + '__.+$'));
+      allow create: if isActive() && id.matches('^.+__' + request.auth.uid + '__.+$')
                     && request.resource.data.keys().hasOnly(['count'])
                     && request.resource.data.count == 1;
       allow update: if isStaff()
-                    || (isActive() && id.split('__')[1] == request.auth.uid
+                    || (isActive() && id.matches('^.+__' + request.auth.uid + '__.+$')
                         && request.resource.data.keys().hasOnly(['count'])
                         && (request.resource.data.count == resource.data.count + 1
                             || request.resource.data.count == resource.data.count - 1)
