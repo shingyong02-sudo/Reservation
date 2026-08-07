@@ -19,9 +19,10 @@
 4. **細項優化 (P3)**：
    - 今日總覽的「時段使用率」分母改為平行讀取並加總所有場地當前時段範本數，不再寫死為場地數乘以 7。
    - 修正 `fetchClientIp` 計時器資源洩漏，將 `clearTimeout` 移至 `finally` 區塊，保證不論超時與否均會清空。
-5. **快取失效管理與後台側邊欄固定 (v=20260807f)**：
-   - 將所有相對載入之靜態資源版本號戳記統一升級至 **`?v=20260807f`**。
-   - 修正後台 `.admin-aside` 的 CSS 佈局，為側邊欄加上 `position: sticky; top: 0; height: 100vh;`，並在 `.admin-nav` 加入 `overflow-y: auto;`。這使側邊欄登入者資訊與登出按鈕永遠置底固定，不隨主內容區捲動，同時支援極小視窗高度下的獨立選單捲動。
+5. **快取失效管理與後台側邊欄固定與導覽外鏈 (v=20260807g)**：
+   - 將所有相對載入之靜態資源版本號戳記統一升級至 **`?v=20260807g`**。
+   - 修正後台 `.admin-aside` 的 CSS 佈局，為側邊欄加上 `position: sticky; top: 0; height: 100vh;`，並在 `.admin-nav` 加入 `overflow-y: auto;`，使個人資訊與「登出」按鈕永遠置底固定不隨頁面滾動。
+   - 在後台左側導覽選單的最下方新增一個「線上預約 ↗」的外部連結按鈕，連結至前台的 `https://reservation-98067.web.app/#`，並使用 `target="_blank"` 另開新分頁；透過 CSS 為該按鈕設計了 dashed 分隔線，且同步相容桌機（border-top）與手機（border-left）版型。
 
 ## 🚦 目前狀態
 
@@ -38,7 +39,7 @@
 ## ⚠️ 注意事項
 
 - 專案資料夾在 Google 雲端硬碟（`G:\我的雲端硬碟\AI\Reservation`），換電腦前確認同步完成。
-- **改完 JS/CSS 一定要更新版本參數**：所有模組網址帶 `?v=YYYYMMDDx`（目前 **`20260807f`**），HTML、內部相對 import、style.css 都要一起改。
+- **改完 JS/CSS 一定要更新版本參數**：所有模組網址帶 `?v=YYYYMMDDx`（目前 **`20260807g`**），HTML、內部相對 import、style.css 都要一起改。
 - IP 由 `api.ipify.org` 取得，查不到記為「未知」，計時器已由 `finally` 安全釋放。
 - 本機測試用 `py -m http.server 8899`（cwd 為 `public/`），不要用 `python`（PATH 問題）。
 

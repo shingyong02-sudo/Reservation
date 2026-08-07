@@ -622,14 +622,22 @@ td code, .mono { font-family: var(--font-mono); font-size: var(--text-sm); color
 .admin-aside .brand-name { color: var(--paper-50); font-size: var(--text-sm); }
 .admin-aside .brand-sub { color: var(--ink-300); }
 .admin-nav { display: flex; flex-direction: column; padding: var(--space-4) var(--space-3); gap: var(--space-1); overflow-y: auto; }
-.admin-nav button {
+.admin-nav button, .admin-nav a {
   text-align: left; background: transparent; border: 0;
   color: var(--paper-100); font-family: inherit; font-size: var(--text-sm);
   padding: var(--space-3) var(--space-4); border-radius: var(--radius-md);
   cursor: pointer; min-height: var(--touch); white-space: nowrap;
+  text-decoration: none; display: block;
 }
-.admin-nav button:hover { background: var(--ink-800); }
+.admin-nav button:hover, .admin-nav a:hover { background: var(--ink-800); color: var(--paper-50); }
 .admin-nav button.active { background: var(--gold-500); color: var(--ink-900); font-weight: var(--weight-semibold); }
+.admin-nav a.external-link {
+  color: var(--gold-400);
+  border-top: 1px dashed var(--ink-700);
+  border-radius: 0;
+  margin-top: var(--space-2);
+  font-weight: var(--weight-semibold);
+}
 .admin-foot { margin-top: auto; padding: var(--space-4) var(--space-5); border-top: 1px solid var(--ink-700); font-size: var(--text-xs); color: var(--ink-300); }
 /* 後台主區要吃滿側欄右側的整欄寬。不覆寫的話會繼承全域 main 的
    max-width 與 margin:0 auto，變成隨當頁最寬表格縮放並置中 */
@@ -678,7 +686,14 @@ td code, .mono { font-family: var(--font-mono); font-size: var(--text-sm); color
     overflow-y: hidden;
   }
   .admin-nav::-webkit-scrollbar { display: none; }
-  .admin-nav button { flex: 0 0 auto; padding: var(--space-2) var(--space-3); }
+  .admin-nav button, .admin-nav a { flex: 0 0 auto; padding: var(--space-2) var(--space-3); }
+  .admin-nav a.external-link {
+    border-top: 0;
+    border-left: 1px dashed var(--ink-700);
+    margin-top: 0;
+    margin-left: var(--space-2);
+    padding-left: var(--space-3);
+  }
 }
 
 @media (max-width: 600px) {
