@@ -33,15 +33,14 @@
 - **後台登入後的功能仍未由 Agent 實測**——安全規則不允許 Agent 輸入密碼，需使用者自行點測
 - 系統管理員帳號：`jnfakimo@gmail.com`（uid `9WAjh6E4OUebjWggHd2gwujBzd33`）
 
-## ➡️ 下一步（使用者最後提出、尚未實作）
-**在登入頁增加「忘記密碼」自助重設功能。**
-- 現況：後台帳號管理已有「寄重設信」按鈕，但**只有系統管理員能觸發**；
-  住戶端與後台的登入頁**沒有**自助的「忘記密碼」連結。
-- 作法：在 `index.html` 與 `admin.html` 的登入卡片加一個「忘記密碼？」連結，
-  呼叫 `sendPasswordResetEmail(auth, email)`（Firebase Auth 內建，不需 Cloud Functions）。
-  注意：無論該 Email 是否存在都要回報相同訊息，避免被用來探測有效帳號。
-- 另需在 Firebase Console → Authentication → Templates 確認密碼重設信的
-  寄件者與中文內容。
+## ➡️ 下一步
+
+**忘記密碼：後台已有，住戶端還沒有。**
+- ✅ 後台 `/admin` 登入頁已有「忘記密碼？」連結（`admin.html` + `admin.js`，
+  呼叫 `sendPasswordResetEmail`）
+- ⬜ 住戶端 `index.html` 的登入頁**還沒有**同樣的連結，建議比照補上
+- ⬜ 需在 Firebase Console → Authentication → Templates 確認密碼重設信的
+  寄件者名稱與中文內容（預設是英文範本）
 
 其他待辦：
 - 補場地實景照片（目前已移除照片區塊，要加回需改版面）
