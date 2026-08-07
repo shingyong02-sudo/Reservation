@@ -72,7 +72,11 @@ service cloud.firestore {
     // doc id = facilityId__date__slotId，靠「同一 id 只能存在一份」防止重複預約
     match /slotLocks/{lockId} {
       allow read: if true;
-      allow create: if isActive();
+      allow create: if isActive()
+                    && request.resource.id == request.resource.data.facilityId + '__' + request.resource.data.date + '__' + request.resource.data.slotId
+                    && request.resource.data.status in ['confirmed', 'pending_review']
+                    && exists(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId))
+                    && get(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.uid == request.auth.uid;
       allow update: if isStaff()
                     // 已取消的鎖可被別人重新佔用
                     || (isActive() && resource.data.status == 'cancelled'
@@ -89,7 +93,11 @@ service cloud.firestore {
     match /unitSlotHolds/{id} {
       allow get: if isActive();
       allow list: if isStaff();
-      allow create: if isActive();
+      allow create: if isActive()
+                    && request.resource.id == request.auth.uid + '__' + request.resource.data.date + '__' + request.resource.data.startTime
+                    && request.resource.data.uid == request.auth.uid
+                    && exists(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId))
+                    && get(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.uid == request.auth.uid;
       allow update: if isStaff();
       allow delete: if isStaff()
                     || (isActive()
@@ -101,22 +109,26 @@ service cloud.firestore {
     // doc id 以 uid 為主鍵，住戶登入後才寫得動，
     // 且只允許 ±1、不得為負，無法自行歸零繞過上限。
     match /unitDailyUsage/{id} {
-      allow read: if isActive();
-      allow create: if isActive() && request.resource.data.keys().hasOnly(['count'])
+      allow read: if isActive() && (isStaff() || id.split('__')[1] == request.auth.uid);
+      allow create: if isActive() && id.split('__')[1] == request.auth.uid
+                    && request.resource.data.keys().hasOnly(['count'])
                     && request.resource.data.count == 1;
       allow update: if isStaff()
-                    || (isActive() && request.resource.data.keys().hasOnly(['count'])
+                    || (isActive() && id.split('__')[1] == request.auth.uid
+                        && request.resource.data.keys().hasOnly(['count'])
                         && (request.resource.data.count == resource.data.count + 1
                             || request.resource.data.count == resource.data.count - 1)
                         && request.resource.data.count >= 0);
       allow delete: if isStaff();
     }
     match /unitWeeklyUsage/{id} {
-      allow read: if isActive();
-      allow create: if isActive() && request.resource.data.keys().hasOnly(['count'])
+      allow read: if isActive() && (isStaff() || id.split('__')[1] == request.auth.uid);
+      allow create: if isActive() && id.split('__')[1] == request.auth.uid
+                    && request.resource.data.keys().hasOnly(['count'])
                     && request.resource.data.count == 1;
       allow update: if isStaff()
-                    || (isActive() && request.resource.data.keys().hasOnly(['count'])
+                    || (isActive() && id.split('__')[1] == request.auth.uid
+                        && request.resource.data.keys().hasOnly(['count'])
                         && (request.resource.data.count == resource.data.count + 1
                             || request.resource.data.count == resource.data.count - 1)
                         && request.resource.data.count >= 0);
@@ -129,9 +141,11 @@ service cloud.firestore {
       allow get: if isStaff() || (isActive() && resource.data.uid == request.auth.uid);
       allow list: if isStaff() || (isActive() && resource.data.uid == request.auth.uid);
 
-      // 預約必須掛在自己的帳號下，無法冒用他人身分建立
+      // 預約必須掛在自己的帳號下，無法冒用他人身分建立，姓名與房號需與個人檔相符
       allow create: if isActive()
                     && request.resource.data.uid == request.auth.uid
+                    && request.resource.data.applicantName == userDoc().name
+                    && request.resource.data.houseNumber == userDoc().houseNumber
                     && request.resource.data.keys().hasAll(
                          ['uid', 'facilityId', 'date', 'slotId', 'startTime', 'endTime',
                           'applicantName', 'houseNumber', 'status', 'createdAt'])

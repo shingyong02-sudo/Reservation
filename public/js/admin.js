@@ -1,4 +1,4 @@
-import { db, auth } from "./firebase-config.js?v=20260807d";
+import { db, auth } from "./firebase-config.js?v=20260807e";
 import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
 import {
   getAuth, createUserWithEmailAndPassword, sendPasswordResetEmail,
@@ -10,8 +10,8 @@ import {
 import {
   todayStr, weekStartOf, slotLockId, escapeHtml, fmtStatus, fmtDateHuman, fmtDateFull,
   friendlyError, WEEKDAY_LABEL, ROLES, roleLabel, isStaffRole, ACTION_LABEL, describeDetail,
-} from "./shared.js?v=20260807d";
-import { watchAuth, login, logout, writeLog, canEnterAdmin } from "./auth.js?v=20260807d";
+} from "./shared.js?v=20260807e";
+import { watchAuth, login, logout, writeLog, canEnterAdmin } from "./auth.js?v=20260807e";
 
 const $ = (id) => document.getElementById(id);
 let me = null;
@@ -141,12 +141,15 @@ async function loadDashboard() {
   try {
     const facSnap = await getDocs(collection(db, "facilities"));
     const facs = facSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    const [todaySnap, pendingSnap, ...eqSnaps] = await Promise.all([
+    const [todaySnap, pendingSnap, slotSnaps, ...eqSnaps] = await Promise.all([
       getDocs(query(collection(db, "bookings"), where("date", "==", todayStr()))),
       getDocs(query(collection(db, "bookings"), where("status", "==", "pending_review"))),
+      Promise.all(facs.map((f) => getDocs(collection(db, "facilities", f.id, "timeSlotTemplates")))),
       ...facs.map((f) => getDocs(query(collection(db, "facilities", f.id, "equipment"),
         where("status", "==", "maintenance")))),
     ]);
+
+    const totalSlots = slotSnaps.reduce((sum, s) => sum + s.size, 0);
 
     const all = todaySnap.docs.map((d) => ({ id: d.id, ...d.data() }));
     const active = all.filter((b) => !["cancelled", "rejected"].includes(b.status))
@@ -156,7 +159,7 @@ async function loadDashboard() {
     eqSnaps.forEach((s, i) => s.docs.forEach((d) => maint.push({ facility: facs[i].name, ...d.data() })));
     const blocked = new Set(maint.filter((m) => m.essential).map((m) => m.facility));
     const closed = facs.filter((f) => f.status === "closed").length;
-    const usage = facs.length ? Math.round(active.length / (facs.length * 7) * 100) : 0;
+    const usage = totalSlots ? Math.round(active.length / totalSlots * 100) : 0;
 
     el.innerHTML = head("今日總覽", fmtDateFull(todayStr())) + `
       <div class="stat-row">
@@ -265,46 +268,64 @@ function bookingActions(b) {
 async function setStatus(b, newStatus, action) {
   const verb = { confirmed: "核准", rejected: "拒絕", cancelled: "取消" }[newStatus];
   if (!confirm(`確定要${verb}這筆預約嗎？（${b.facilityName}／${b.houseNumber}）`)) return;
+
+  const bookingRef = doc(db, "bookings", b.id);
+  const lockRef = doc(db, "slotLocks", slotLockId(b.facilityId, b.date, b.slotId));
+  const holdRef = doc(db, "unitSlotHolds", `${b.uid}__${b.date}__${b.startTime}`);
+  const dailyRef = doc(db, "unitDailyUsage", `${b.facilityId}__${b.uid}__${b.date}`);
+  const weeklyRef = doc(db, "unitWeeklyUsage", `${b.facilityId}__${b.uid}__${weekStartOf(b.date)}`);
+
   try {
     const releasing = ["cancelled", "rejected"].includes(newStatus);
-    await updateDoc(doc(db, "bookings", b.id), {
-      status: newStatus, cancelledAt: releasing ? serverTimestamp() : null,
+    await runTransaction(db, async (tx) => {
+      // 讀取操作（必須放在所有寫入之前）
+      const bkSnap = await tx.get(bookingRef);
+      const dailySnap = releasing ? await tx.get(dailyRef) : null;
+      const weeklySnap = releasing ? await tx.get(weeklyRef) : null;
+
+      if (!bkSnap.exists()) throw new Error("not-found");
+
+      // 寫入操作
+      tx.update(bookingRef, {
+        status: newStatus, cancelledAt: releasing ? serverTimestamp() : null,
+      });
+
+      tx.set(lockRef, {
+        facilityId: b.facilityId, date: b.date, slotId: b.slotId,
+        status: releasing ? "cancelled" : newStatus, bookingId: b.id, createdAt: serverTimestamp(),
+      });
+
+      if (releasing) {
+        tx.delete(holdRef);
+
+        if (dailySnap && dailySnap.exists() && dailySnap.data().count > 0) {
+          tx.set(dailyRef, { count: dailySnap.data().count - 1 });
+        }
+        if (weeklySnap && weeklySnap.exists() && weeklySnap.data().count > 0) {
+          tx.set(weeklyRef, { count: weeklySnap.data().count - 1 });
+        }
+      }
     });
-    await setDoc(doc(db, "slotLocks", slotLockId(b.facilityId, b.date, b.slotId)), {
-      facilityId: b.facilityId, date: b.date, slotId: b.slotId,
-      status: releasing ? "cancelled" : newStatus, bookingId: b.id, createdAt: serverTimestamp(),
-    });
-    if (releasing) {
-      await deleteDoc(doc(db, "unitSlotHolds", `${b.uid}__${b.date}__${b.startTime}`)).catch(() => {});
-      await refundUsage(b);
-    }
-    writeLog("booking", b.id, action, { 場地: b.facilityName, 日期: b.date, 門牌: b.houseNumber });
+
+    writeLog("booking", b.id, action, { 場地: b.facilityName, 日期: b.date, 門牌: b.houseNumber }).catch(() => {});
     renderBookings();
   } catch (err) { $("bkAlert").innerHTML = errorBox(err); }
 }
 
 async function releaseSlot(b) {
+  const lockRef = doc(db, "slotLocks", slotLockId(b.facilityId, b.date, b.slotId));
+  const holdRef = doc(db, "unitSlotHolds", `${b.uid}__${b.date}__${b.startTime}`);
   try {
-    await setDoc(doc(db, "slotLocks", slotLockId(b.facilityId, b.date, b.slotId)), {
-      facilityId: b.facilityId, date: b.date, slotId: b.slotId,
-      status: "cancelled", bookingId: b.id, createdAt: serverTimestamp(),
+    await runTransaction(db, async (tx) => {
+      tx.set(lockRef, {
+        facilityId: b.facilityId, date: b.date, slotId: b.slotId,
+        status: "cancelled", bookingId: b.id, createdAt: serverTimestamp(),
+      });
+      tx.delete(holdRef);
     });
-    await deleteDoc(doc(db, "unitSlotHolds", `${b.uid}__${b.date}__${b.startTime}`)).catch(() => {});
-    writeLog("booking", b.id, "release_slot", { 場地: b.facilityName, 日期: b.date });
+    writeLog("booking", b.id, "release_slot", { 場地: b.facilityName, 日期: b.date }).catch(() => {});
     renderBookings();
   } catch (err) { $("bkAlert").innerHTML = errorBox(err); }
-}
-
-async function refundUsage(b) {
-  if (!b.uid) return;
-  const refs = [
-    doc(db, "unitDailyUsage", `${b.facilityId}__${b.uid}__${b.date}`),
-    doc(db, "unitWeeklyUsage", `${b.facilityId}__${b.uid}__${weekStartOf(b.date)}`),
-  ];
-  await Promise.all(refs.map((ref) => runTransaction(db, async (tx) => {
-    const s = await tx.get(ref);
-    if (s.exists() && s.data().count > 0) tx.set(ref, { count: s.data().count - 1 });
-  }).catch(() => {})));
 }
 
 /* ============================================================
@@ -391,6 +412,8 @@ async function saveFacility(id) {
   const alertEl = $(`f-alert-${id}`);
   const name = v("f-name").trim();
   if (!name) { alertEl.innerHTML = `<div class="alert error">場地名稱不可空白</div>`; return; }
+  const btn = $(`f-save-${id}`);
+  btn.disabled = true;
   const data = {
     name, description: v("f-desc").trim(),
     capacity: v("f-capacity") === "" ? null : Number(v("f-capacity")),
@@ -402,10 +425,11 @@ async function saveFacility(id) {
   };
   try {
     await updateDoc(doc(db, "facilities", id), data);
-    writeLog("facility", id, "config_change", { name, 容納人數: data.capacity, 狀態: data.status, 審核方式: data.bookingMode });
+    writeLog("facility", id, "config_change", { name, 容納人數: data.capacity, 狀態: data.status, 審核方式: data.bookingMode }).catch(() => {});
     alertEl.innerHTML = `<div class="alert ok">已儲存</div>`;
     setTimeout(() => { alertEl.innerHTML = ""; }, 3000);
   } catch (err) { alertEl.innerHTML = errorBox(err); }
+  finally { btn.disabled = false; }
 }
 
 async function addFacility() {
@@ -458,12 +482,15 @@ async function addSlot(id) {
     alertEl.innerHTML = `<div class="alert error">請填寫起訖時間並至少勾選一個星期</div>`; return;
   }
   if (endTime <= startTime) { alertEl.innerHTML = `<div class="alert error">結束時間必須晚於開始時間</div>`; return; }
+  const btn = $(`ns-add-${id}`);
+  btn.disabled = true;
   try {
     await setDoc(doc(db, "facilities", id, "timeSlotTemplates", `t${startTime.replace(":", "")}`),
       { startTime, endTime, weekdays });
-    writeLog("facility", id, "config_change", { 新增時段: `${startTime}–${endTime}` });
+    writeLog("facility", id, "config_change", { 新增時段: `${startTime}–${endTime}` }).catch(() => {});
     loadFacilities();
   } catch (err) { alertEl.innerHTML = errorBox(err); }
+  finally { btn.disabled = false; }
 }
 
 async function delSlot(facilityId, slotId) {
@@ -537,6 +564,8 @@ async function loadEqList(facilityId) {
 }
 
 async function saveEq(facilityId, eqId, name) {
+  const btn = document.querySelector(`[data-save-eq="${eqId}"]`);
+  if (btn) btn.disabled = true;
   const data = {
     essential: $(`eq-ess-${eqId}`).checked,
     status: $(`eq-st-${eqId}`).value,
@@ -547,21 +576,25 @@ async function saveEq(facilityId, eqId, name) {
     await updateDoc(doc(db, "facilities", facilityId, "equipment", eqId), data);
     writeLog("equipment", eqId, "equipment_status_change", {
       場地: facilityId, 設備: name, 狀態: data.status, 必要設備: data.essential, 備註: data.note,
-    });
+    }).catch(() => {});
     loadEqList(facilityId);
   } catch (err) { $("eqAlert").innerHTML = errorBox(err); }
+  finally { if (btn) btn.disabled = false; }
 }
 
 async function addEq(facilityId) {
   const name = $("newEqName").value.trim();
   if (!name) { $("eqAlert").innerHTML = `<div class="alert error">請輸入設備名稱</div>`; return; }
+  const btn = $("addEqBtn");
+  btn.disabled = true;
   try {
     const ref = await addDoc(collection(db, "facilities", facilityId, "equipment"), {
       name, essential: false, status: "normal", note: "", updatedAt: serverTimestamp(),
     });
-    writeLog("equipment", ref.id, "equipment_status_change", { 場地: facilityId, 新增: true, 設備: name });
+    writeLog("equipment", ref.id, "equipment_status_change", { 場地: facilityId, 新增: true, 設備: name }).catch(() => {});
     loadEqList(facilityId);
   } catch (err) { $("eqAlert").innerHTML = errorBox(err); }
+  finally { btn.disabled = false; }
 }
 
 async function delEq(facilityId, e) {
@@ -628,23 +661,29 @@ async function addNotice() {
   const text = $("nText").value.trim();
   const box = $("nAlert");
   if (!text) { box.innerHTML = `<div class="alert error">請輸入公告內容</div>`; return; }
+  const btn = $("addNotice");
+  btn.disabled = true;
   try {
     const ref = await addDoc(collection(db, "announcements"), {
       tag: $("nTag").value.trim() || "公告", tone: $("nTone").value,
       date: $("nDate").value || todayStr(), text, published: $("nPublished").checked,
       createdAt: serverTimestamp(),
     });
-    writeLog("announcement", ref.id, "config_change", { 新增: true, 內容: text });
+    writeLog("announcement", ref.id, "config_change", { 新增: true, 內容: text }).catch(() => {});
     loadNotices();
   } catch (err) { box.innerHTML = errorBox(err); }
+  finally { btn.disabled = false; }
 }
 
 async function toggleNotice(n) {
+  const btn = document.querySelector(`[data-toggle-n="${n.id}"]`);
+  if (btn) btn.disabled = true;
   try {
     await updateDoc(doc(db, "announcements", n.id), { published: !n.published });
-    writeLog("announcement", n.id, "config_change", { 發布: !n.published, 內容: n.text });
+    writeLog("announcement", n.id, "config_change", { 發布: !n.published, 內容: n.text }).catch(() => {});
     loadNotices();
   } catch (err) { $("nAlert").innerHTML = errorBox(err); }
+  finally { if (btn) btn.disabled = false; }
 }
 
 async function delNotice(n) {
@@ -777,22 +816,28 @@ async function createAccount() {
 }
 
 async function saveUserRole(u) {
+  const btn = document.querySelector(`[data-save-u="${u.uid}"]`);
+  if (btn) btn.disabled = true;
   const role = $(`ur-${u.uid}`).value;
   try {
     await updateDoc(doc(db, "users", u.uid), { role, updatedAt: serverTimestamp() });
-    writeLog("account", u.uid, "account_update", { 帳號: u.email, 角色: roleLabel(role) });
+    writeLog("account", u.uid, "account_update", { 帳號: u.email, 角色: roleLabel(role) }).catch(() => {});
     loadAccounts();
   } catch (err) { $("acAlert").innerHTML = errorBox(err); }
+  finally { if (btn) btn.disabled = false; }
 }
 
 async function toggleUser(u) {
   const next = !u.disabled;
   if (!confirm(`確定要${next ? "停用" : "啟用"}帳號「${u.email}」？${next ? "\n停用後該帳號將無法登入與預約。" : ""}`)) return;
+  const btn = document.querySelector(`[data-toggle-u="${u.uid}"]`);
+  if (btn) btn.disabled = true;
   try {
     await updateDoc(doc(db, "users", u.uid), { disabled: next, updatedAt: serverTimestamp() });
-    writeLog("account", u.uid, "account_update", { 帳號: u.email, 停用: next });
+    writeLog("account", u.uid, "account_update", { 帳號: u.email, 停用: next }).catch(() => {});
     loadAccounts();
   } catch (err) { $("acAlert").innerHTML = errorBox(err); }
+  finally { if (btn) btn.disabled = false; }
 }
 
 async function sendReset(u) {

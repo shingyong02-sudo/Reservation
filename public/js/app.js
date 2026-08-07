@@ -1,4 +1,4 @@
-import { db, auth } from "./firebase-config.js?v=20260807d";
+import { db, auth } from "./firebase-config.js?v=20260807e";
 import {
   collection, doc, getDoc, getDocs, query, where, orderBy, limit,
   runTransaction, updateDoc, setDoc, deleteDoc, serverTimestamp,
@@ -8,8 +8,8 @@ import {
   COMMUNITY, generateQueryCode, todayStr, addDays, isoWeekday, weekStartOf,
   slotLockId, escapeHtml, fmtStatus, fmtDateHuman, fmtDateFull, fmtSlot,
   friendlyError, WEEKDAY_LABEL,
-} from "./shared.js?v=20260807d";
-import { watchAuth, login, logout, writeLog, canEnterAdmin } from "./auth.js?v=20260807d";
+} from "./shared.js?v=20260807e";
+import { watchAuth, login, logout, writeLog, canEnterAdmin } from "./auth.js?v=20260807e";
 
 const $ = (id) => document.getElementById(id);
 
@@ -685,29 +685,41 @@ async function loadMine() {
 
 async function doCancel(code, b) {
   if (!confirm("確定要取消此預約嗎？取消後這個時段會立即開放給其他住戶。")) return;
+  const bookingRef = doc(db, "bookings", code);
+  const lockRef = doc(db, "slotLocks", slotLockId(b.facilityId, b.date, b.slotId));
+  const holdRef = doc(db, "unitSlotHolds", `${me.uid}__${b.date}__${b.startTime}`);
+  const dailyRef = doc(db, "unitDailyUsage", `${b.facilityId}__${me.uid}__${b.date}`);
+  const weeklyRef = doc(db, "unitWeeklyUsage", `${b.facilityId}__${me.uid}__${weekStartOf(b.date)}`);
+
   try {
-    // 順序不可調換：安全規則要求「預約已是取消狀態」才允許釋出時段鎖與佔位
-    await updateDoc(doc(db, "bookings", code), { status: "cancelled", cancelledAt: serverTimestamp() });
-    await setDoc(doc(db, "slotLocks", slotLockId(b.facilityId, b.date, b.slotId)), {
-      facilityId: b.facilityId, date: b.date, slotId: b.slotId,
-      status: "cancelled", bookingId: code, createdAt: serverTimestamp(),
-    }).catch(() => {});
-    await deleteDoc(doc(db, "unitSlotHolds", `${me.uid}__${b.date}__${b.startTime}`)).catch(() => {});
-    await refundUsage(b).catch(() => {});
+    await runTransaction(db, async (tx) => {
+      // 讀取操作（必須放在所有寫入之前）
+      const bkSnap = await tx.get(bookingRef);
+      const dailySnap = await tx.get(dailyRef);
+      const weeklySnap = await tx.get(weeklyRef);
+
+      if (!bkSnap.exists()) throw new Error("not-found");
+      if (bkSnap.data().status === "cancelled") return;
+
+      // 寫入操作
+      tx.update(bookingRef, { status: "cancelled", cancelledAt: serverTimestamp() });
+      tx.set(lockRef, {
+        facilityId: b.facilityId, date: b.date, slotId: b.slotId,
+        status: "cancelled", bookingId: code, createdAt: serverTimestamp(),
+      });
+      tx.delete(holdRef);
+
+      if (dailySnap.exists() && dailySnap.data().count > 0) {
+        tx.set(dailyRef, { count: dailySnap.data().count - 1 });
+      }
+      if (weeklySnap.exists() && weeklySnap.data().count > 0) {
+        tx.set(weeklyRef, { count: weeklySnap.data().count - 1 });
+      }
+    });
+
     writeLog("booking", code, "cancel", { 場地: b.facilityName, 日期: b.date, 時段: b.slotLabel }).catch(() => {});
     loadMine();
   } catch (err) {
     alert(friendlyError(err));
   }
-}
-
-async function refundUsage(b) {
-  const refs = [
-    doc(db, "unitDailyUsage", `${b.facilityId}__${me.uid}__${b.date}`),
-    doc(db, "unitWeeklyUsage", `${b.facilityId}__${me.uid}__${weekStartOf(b.date)}`),
-  ];
-  await Promise.all(refs.map((ref) => runTransaction(db, async (tx) => {
-    const s = await tx.get(ref);
-    if (s.exists() && s.data().count > 0) tx.set(ref, { count: s.data().count - 1 });
-  }).catch(() => {})));
 }

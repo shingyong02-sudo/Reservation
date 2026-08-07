@@ -227,14 +227,16 @@ export function describeDevice(ua = navigator.userAgent) {
 let cachedIp = null;
 export async function fetchClientIp() {
   if (cachedIp) return cachedIp;
+  let t;
   try {
     const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 2500);
+    t = setTimeout(() => ctrl.abort(), 2500);
     const res = await fetch("https://api.ipify.org?format=json", { signal: ctrl.signal });
-    clearTimeout(t);
     cachedIp = (await res.json()).ip || "未知";
   } catch {
     cachedIp = "未知";
+  } finally {
+    if (t) clearTimeout(t);
   }
   return cachedIp;
 }
