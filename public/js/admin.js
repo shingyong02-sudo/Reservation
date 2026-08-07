@@ -1,4 +1,4 @@
-import { db, auth } from "./firebase-config.js?v=20260807a";
+import { db, auth } from "./firebase-config.js?v=20260807b";
 import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
 import {
   getAuth, createUserWithEmailAndPassword, sendPasswordResetEmail,
@@ -10,8 +10,8 @@ import {
 import {
   todayStr, weekStartOf, slotLockId, escapeHtml, fmtStatus, fmtDateHuman, fmtDateFull,
   friendlyError, WEEKDAY_LABEL, ROLES, roleLabel, isStaffRole, ACTION_LABEL, describeDetail,
-} from "./shared.js?v=20260807a";
-import { watchAuth, login, logout, writeLog, canEnterAdmin } from "./auth.js?v=20260807a";
+} from "./shared.js?v=20260807b";
+import { watchAuth, login, logout, writeLog, canEnterAdmin } from "./auth.js?v=20260807b";
 
 const $ = (id) => document.getElementById(id);
 let me = null;
@@ -111,6 +111,8 @@ function switchTab(name) {
     $(`tab-${t}`).classList.toggle("active", t === name);
     $(`view-${t}`).classList.toggle("hidden", t !== name);
   });
+  // 窄螢幕的分頁列會左右捲動，把選中的那顆捲進可視範圍，否則點完看不到自己在哪一頁
+  $(`tab-${name}`).scrollIntoView({ inline: "nearest", block: "nearest" });
   refresh();
 }
 

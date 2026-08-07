@@ -1,4 +1,4 @@
-@import url('./tokens.css?v=20260807a');
+@import url('./tokens.css?v=20260807b');
 
 /* ============================================================
    聯懋超綻預約系統 — 元件與版面
@@ -113,6 +113,9 @@ h1, h2, h3, h4 {
 }
 .topbar nav a:hover, .topbar nav button.linklike:hover { color: var(--gold-700); }
 .topbar nav a.quiet { color: var(--ink-500); font-size: var(--text-xs); }
+/* authArea 由 JS 塞入「姓名／門牌 + 登出」，原本是 inline span，
+   兩者會折成上下兩行把版首撐高，改成同一橫排 */
+#authArea { display: inline-flex; align-items: center; gap: var(--space-3); }
 
 /* ---------- 版面容器 ---------- */
 
@@ -519,6 +522,8 @@ td code, .mono { font-family: var(--font-mono); font-size: var(--text-sm); color
 
 .loading, .empty { color: var(--ink-500); font-size: var(--text-sm); margin: var(--space-3) 0; }
 .hint { color: var(--ink-500); font-size: var(--text-xs); line-height: var(--leading-normal); margin: var(--space-3) 0 0; }
+/* 提示文字裡的連結（如「忘記密碼？」）在手機上要有足夠的點擊區域 */
+.hint a { display: inline-flex; align-items: center; min-height: var(--touch); }
 .sub-text { color: var(--ink-500); font-size: var(--text-xs); }
 .doc-id { font-size: var(--text-2xs); color: var(--ink-500); font-weight: var(--weight-regular); font-family: var(--font-mono); }
 
@@ -607,7 +612,9 @@ td code, .mono { font-family: var(--font-mono); font-size: var(--text-sm); color
 .admin-nav button:hover { background: var(--ink-800); }
 .admin-nav button.active { background: var(--gold-500); color: var(--ink-900); font-weight: var(--weight-semibold); }
 .admin-foot { margin-top: auto; padding: var(--space-4) var(--space-5); border-top: 1px solid var(--ink-700); font-size: var(--text-xs); color: var(--ink-300); }
-.admin-main { padding: var(--space-6); }
+/* 後台主區要吃滿側欄右側的整欄寬。不覆寫的話會繼承全域 main 的
+   max-width 與 margin:0 auto，變成隨當頁最寬表格縮放並置中 */
+.admin-main { padding: var(--space-6); max-width: none; margin: 0; min-width: 0; }
 .admin-head { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-4); flex-wrap: wrap; margin-bottom: var(--space-5); }
 .admin-head h2 { font-size: var(--text-2xl); }
 .admin-head .date { font-size: var(--text-sm); color: var(--ink-500); margin-top: var(--space-1); }
@@ -619,17 +626,58 @@ td code, .mono { font-family: var(--font-mono); font-size: var(--text-sm); color
   .facility-grid { grid-template-columns: repeat(2, 1fr); }
   .rules-grid { grid-template-columns: repeat(2, 1fr); }
   .stat-row { grid-template-columns: repeat(2, 1fr); }
-  .admin-shell { grid-template-columns: 1fr; }
-  .admin-aside { flex-direction: row; align-items: center; padding: var(--space-3); overflow-x: auto; gap: var(--space-3); }
-  .admin-aside .brand { border-bottom: 0; padding: 0 var(--space-3) 0 0; border-right: 1px solid var(--ink-700); }
-  .admin-nav { flex-direction: row; padding: 0; }
-  .admin-foot { margin-top: 0; border-top: 0; padding: 0 0 0 var(--space-3); white-space: nowrap; }
+  /* 列高必須寫死 auto 1fr：grid 預設 align-content:stretch 會把
+     min-height:100vh 的剩餘高度平均分給兩列，頂列會被撐成半個螢幕高 */
+  .admin-shell { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr; }
+  /* 側欄改成頂部橫列：第一行放品牌與帳號，分頁列另起一行 */
+  .admin-aside {
+    flex-direction: row; flex-wrap: wrap; align-items: center;
+    padding: var(--space-3) var(--space-4); gap: var(--space-2) var(--space-3);
+    position: sticky; top: 0; z-index: 20;
+  }
+  /* 品牌與帳號區都不可壓縮，否則中文會逐字斷行被擠成直排 */
+  .admin-aside .brand {
+    flex: 0 0 auto; white-space: nowrap;
+    border-bottom: 0; padding: 0;
+  }
+  .admin-foot {
+    flex: 0 0 auto; margin: 0 0 0 auto; padding: 0;
+    border-top: 0; white-space: nowrap;
+  }
+  .admin-foot br { display: none; }
+  .admin-foot .role-tag { margin: 0 var(--space-2); }
+  /* 只有分頁列可左右捲動，品牌與登出留在原位不被捲走 */
+  .admin-nav {
+    order: 3; flex: 1 0 100%;
+    /* min-width:0 不可省：flex item 預設 min-width:auto，7 顆按鈕的
+       min-content 寬度會把整條列撐破畫面，overflow-x 也就永遠不會生效 */
+    min-width: 0;
+    flex-direction: row; padding: 0; gap: var(--space-1);
+    overflow-x: auto; overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+  .admin-nav::-webkit-scrollbar { display: none; }
+  .admin-nav button { flex: 0 0 auto; padding: var(--space-2) var(--space-3); }
 }
 
 @media (max-width: 600px) {
   main { padding: var(--space-4) var(--space-4) var(--space-6); }
-  .topbar { padding: var(--space-3) var(--space-4); }
-  .topbar nav { gap: var(--space-3); }
+  /* 版首：窄螢幕只留印章，選單項一律不可壓縮。
+     沒有這段的話中文會逐字斷行，每個項目被擠成 19px 寬、110px 高，
+     整條 sticky 版首高達 135px */
+  .topbar { padding: var(--space-2) var(--space-4); gap: var(--space-3); }
+  .topbar .brand { flex: 0 0 auto; }
+  .topbar .brand-name, .topbar .brand-sub { display: none; }
+  .topbar nav {
+    min-width: 0; gap: var(--space-3);
+    overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none;
+  }
+  .topbar nav::-webkit-scrollbar { display: none; }
+  .topbar nav > * { flex: 0 0 auto; }
+  /* 手機收起兩個純錨點捷徑（首頁往下捲就看得到，主視覺也有「立即預約場地」），
+     騰出的寬度讓「我的預約」與「登出」不必左右捲就看得見 */
+  .topbar nav button.linklike[data-goto] { display: none; }
+  .topbar nav a, .topbar nav button.linklike, .who, .who-sub { white-space: nowrap; }
   .hero { padding: var(--space-5) 0 var(--space-4); }
   .hero h1 { font-size: var(--text-2xl); }
   .hero p.lead { font-size: var(--text-base); }
@@ -646,4 +694,7 @@ td code, .mono { font-family: var(--font-mono); font-size: var(--text-sm); color
   .facility-title { font-size: var(--text-base); }
   .footer-inner { flex-direction: column; align-items: flex-start; }
   .admin-main { padding: var(--space-4); }
+  /* 窄螢幕省下副標的寬度，讓品牌與帳號擠得進同一行 */
+  .admin-aside .brand-sub { display: none; }
+  .admin-aside .brand-name { font-size: var(--text-base); }
 }
