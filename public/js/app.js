@@ -1,14 +1,15 @@
-import { db } from "./firebase-config.js?v=20260806d";
+import { db, auth } from "./firebase-config.js?v=20260807a";
 import {
   collection, doc, getDoc, getDocs, query, where, orderBy, limit,
   runTransaction, updateDoc, setDoc, deleteDoc, serverTimestamp,
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
+import { sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
 import {
   COMMUNITY, generateQueryCode, todayStr, addDays, isoWeekday, weekStartOf,
   slotLockId, escapeHtml, fmtStatus, fmtDateHuman, fmtDateFull, fmtSlot,
   friendlyError, WEEKDAY_LABEL,
-} from "./shared.js?v=20260806d";
-import { watchAuth, login, logout, writeLog, canEnterAdmin } from "./auth.js?v=20260806d";
+} from "./shared.js?v=20260807a";
+import { watchAuth, login, logout, writeLog, canEnterAdmin } from "./auth.js?v=20260807a";
 
 const $ = (id) => document.getElementById(id);
 
@@ -66,6 +67,29 @@ $("specWindow").textContent = `${COMMUNITY.bookingWindowDays} 天內`;
 
 $("loginBtn").addEventListener("click", doLogin);
 $("loginPassword").addEventListener("keydown", (e) => { if (e.key === "Enter") doLogin(); });
+$("forgotPwdLink").addEventListener("click", doForgotPwd);
+
+async function doForgotPwd(e) {
+  e.preventDefault();
+  const email = $("loginEmail").value.trim();
+  const box = $("loginAlert");
+  box.innerHTML = "";
+  if (!email) {
+    box.innerHTML = `<div class="alert error">請先在「帳號（Email）」欄位輸入您的信箱，再點擊忘記密碼。</div>`;
+    return;
+  }
+  // 與登入同樣不透露帳號是否存在，避免被用來探測有效帳號
+  const ok = `<div class="alert ok">若 ${escapeHtml(email)} 是本社區的住戶帳號，重設密碼信已寄出，請至信箱收取（含垃圾信匣）。</div>`;
+  try {
+    await sendPasswordResetEmail(auth, email);
+    box.innerHTML = ok;
+  } catch (err) {
+    const msg = err.code === "auth/invalid-email" ? "Email 格式不正確，請重新輸入"
+      : err.code === "auth/too-many-requests" ? "嘗試次數過多，請稍後再試"
+      : null;
+    box.innerHTML = msg ? `<div class="alert error">${escapeHtml(msg)}</div>` : ok;
+  }
+}
 
 async function doLogin() {
   const email = $("loginEmail").value.trim();

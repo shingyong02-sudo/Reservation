@@ -1,4 +1,4 @@
-import { db, auth } from "./firebase-config.js?v=20260806d";
+import { db, auth } from "./firebase-config.js?v=20260807a";
 import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
 import {
   getAuth, createUserWithEmailAndPassword, sendPasswordResetEmail,
@@ -10,8 +10,8 @@ import {
 import {
   todayStr, weekStartOf, slotLockId, escapeHtml, fmtStatus, fmtDateHuman, fmtDateFull,
   friendlyError, WEEKDAY_LABEL, ROLES, roleLabel, isStaffRole, ACTION_LABEL, describeDetail,
-} from "./shared.js?v=20260806d";
-import { watchAuth, login, logout, writeLog, canEnterAdmin } from "./auth.js?v=20260806d";
+} from "./shared.js?v=20260807a";
+import { watchAuth, login, logout, writeLog, canEnterAdmin } from "./auth.js?v=20260807a";
 
 const $ = (id) => document.getElementById(id);
 let me = null;
