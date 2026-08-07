@@ -9,8 +9,8 @@
 本次（2026-08-07）完成 P0/P1 安全規則補強與邏輯錯誤修補，全部已部署並更新：
 
 1. **Firestore 安全規則強化 (P0/P1)**：
-   - 限制 `slotLocks` 與 `unitSlotHolds` 寫入，強迫比對 `bookingId` 且確認預約人與當前登入者 UID 相符。
-   - 限制 `unitDailyUsage` 與 `unitWeeklyUsage` 僅限本人或後台人員讀寫，防止任意篡改他人使用上限。
+   - 限制 `slotLocks` 與 `unitSlotHolds` 寫入，強迫比對 `bookingId` 且確認預約人與當前登入者 UID 相符（使用 wildcard 變數替代不支援的 `request.resource.id`）。
+   - 限制 `unitDailyUsage` 與 `unitWeeklyUsage` 僅限本人或後台人員讀寫，防止任意篡改他人使用上限（使用 `matches` 正規表示式替代不支援的 `String.split()` 語法）。
    - 限制 `bookings` 建立，比對 `applicantName` 與 `houseNumber` 必須完全吻合 `users/{uid}` 中記錄的個人資訊，防堵惡意冒名預約。
 2. **取消預約流程交易事務化 (P2)**：
    - 將住戶取消（`app.js` `doCancel`）與管理員變更審核狀態/釋出時段（`admin.js` `setStatus`/`releaseSlot`）所涉的資料庫更新包裝為 Firestore `runTransaction`，確保 Booking 狀態變更、時段鎖釋放、Holds 佔位刪除與 Usage 扣回具備 ACID 原子性。
