@@ -26,6 +26,12 @@
    - 修正前台「預約規則」區塊下方到頁尾的留白：將 `#rules` 的 `margin-bottom` 縮減為 `var(--space-4)`，並將 `.site-footer` 的 `margin-top` 縮減為 `var(--space-4)`，使下方多餘留空剛好減半。
    - 調整後台側欄品牌區塊：新增 `.brand-text` 彈性縱排盒，取消「聯懋超綻」文字白色並改為金色調灰色 (`var(--ink-300)`)，並將「物業管理後台」改為白色 (`var(--paper-50)`)、Noto Serif TC 字體及放大 1.8 倍，同時對手機版做了頂欄標題寬度相容。
    - **修正預約送出報權限錯誤的問題 (P0)**：原因為 `firestore.rules` 裡的 `matches()` 正規表示式不支援動態字串拼接，導致運行時解析錯誤回傳 `permission-denied`。我已重構為無正則的常規比對，改為在 `unitDailyUsage` 與 `unitWeeklyUsage` 寫入時補上 `facilityId`, `uid`, `date` 等對應欄位，並於 Rules 內使用 `id == ...` 與 `request.resource.data.uid == request.auth.uid` 進行無縫安全防護驗證。預約功能現已完全恢復正常。
+6. **帳號列表支援行內資料編輯與密碼重設優化 (v=20260807k)**：
+   - 將所有相對載入之靜態資源版本號戳記統一升級至 **`?v=20260807k`**。
+   - 帳號列表中，原本為靜態文字的「門牌、姓名、電話」重構為行內輸入框（`<input type="text">`），並在 CSS 針對表格內輸入框設計了緊湊的 `.table-input` 樣式。
+   - 點擊對應帳號行的「儲存」按鈕時，會將「角色、門牌、姓名、電話」一併寫入 Firestore 的 `users` 集合文件並更新日誌。
+   - 將原本的「寄重設信」按鈕改為更明顯、易懂的「重設密碼」按鈕，點擊後會安全發送 Firebase 官方的密碼重設郵件至該帳號信箱。
+   - 限制當前登入者編輯自己以避免權限自鎖，其餘帳號皆可自由操作。
 
 ## 🚦 目前狀態
 
@@ -42,11 +48,11 @@
 ## ⚠️ 注意事項
 
 - 專案資料夾在 Google 雲端硬碟（`G:\我的雲端硬碟\AI\Reservation`），換電腦前確認同步完成。
-- **改完 JS/CSS 一定要更新版本參數**：所有模組網址帶 `?v=YYYYMMDDx`（目前 **`20260807j`**），HTML、內部相對 import、style.css 都要一起改。
+- **改完 JS/CSS 一定要更新版本參數**：所有模組網址帶 `?v=YYYYMMDDx`（目前 **`20260807k`**），HTML、內部相對 import、style.css 都要一起改。
 - IP 由 `api.ipify.org` 取得，查不到記為「未知」，計時器已由 `finally` 安全釋放。
 - 本機測試用 `py -m http.server 8899`（cwd 為 `public/`），不要用 `python`（PATH 問題）。
 
 ## 🕐 最後更新
 - 時間：2026-08-07 收工
 - 更新者：Antigravity @ DESKTOP-0CFB6UK
-- Git push：✅ 已推（安全規則修正 `8593281`）
+- Git push：待推 (L2 同步進行中)

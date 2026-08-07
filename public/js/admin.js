@@ -1,4 +1,4 @@
-import { db, auth } from "./firebase-config.js?v=20260807j";
+import { db, auth } from "./firebase-config.js?v=20260807k";
 import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
 import {
   getAuth, createUserWithEmailAndPassword, sendPasswordResetEmail,
@@ -10,8 +10,8 @@ import {
 import {
   todayStr, weekStartOf, slotLockId, escapeHtml, fmtStatus, fmtDateHuman, fmtDateFull,
   friendlyError, WEEKDAY_LABEL, ROLES, roleLabel, isStaffRole, ACTION_LABEL, describeDetail,
-} from "./shared.js?v=20260807j";
-import { watchAuth, login, logout, writeLog, canEnterAdmin } from "./auth.js?v=20260807j";
+} from "./shared.js?v=20260807k";
+import { watchAuth, login, logout, writeLog, canEnterAdmin } from "./auth.js?v=20260807k";
 
 const $ = (id) => document.getElementById(id);
 let me = null;
@@ -749,10 +749,10 @@ async function loadAccounts() {
         ${list.length === 0 ? `<p class="empty">尚無帳號</p>` : tableWrap(`
           <table><thead><tr><th>門牌</th><th>姓名</th><th>帳號</th><th>電話</th><th>角色</th><th>狀態</th><th>操作</th></tr></thead>
           <tbody>${list.map((u) => `<tr class="${u.disabled ? "row-danger" : ""}">
-            <td>${escapeHtml(u.houseNumber || "—")}</td>
-            <td>${escapeHtml(u.name || "—")}</td>
+            <td><input type="text" id="uh-${u.uid}" value="${escapeHtml(u.houseNumber || "")}" placeholder="門牌" class="table-input" style="width:110px" ${u.uid === me.uid ? "disabled" : ""}></td>
+            <td><input type="text" id="un-${u.uid}" value="${escapeHtml(u.name || "")}" placeholder="姓名" class="table-input" style="width:90px" ${u.uid === me.uid ? "disabled" : ""}></td>
             <td class="sub-text">${escapeHtml(u.email || "")}</td>
-            <td>${escapeHtml(u.phone || "—")}</td>
+            <td><input type="text" id="up-${u.uid}" value="${escapeHtml(u.phone || "")}" placeholder="電話" class="table-input" style="width:125px" ${u.uid === me.uid ? "disabled" : ""}></td>
             <td><select id="ur-${u.uid}" ${u.uid === me.uid ? "disabled" : ""}>
               ${Object.entries(ROLES).map(([k, v]) => `<option value="${k}" ${u.role === k ? "selected" : ""}>${v}</option>`).join("")}
             </select></td>
@@ -760,14 +760,14 @@ async function loadAccounts() {
             <td class="action-cell">
               <button type="button" class="btn primary sm" data-save-u="${escapeHtml(u.uid)}" ${u.uid === me.uid ? "disabled" : ""}>儲存</button>
               <button type="button" class="btn secondary sm" data-toggle-u="${escapeHtml(u.uid)}" ${u.uid === me.uid ? "disabled" : ""}>${u.disabled ? "啟用" : "停用"}</button>
-              <button type="button" class="btn ghost sm" data-reset-u="${escapeHtml(u.email || "")}">寄重設信</button>
+              <button type="button" class="btn ghost sm" data-reset-u="${escapeHtml(u.email || "")}">重設密碼</button>
             </td></tr>`).join("")}</tbody></table>`)}
         <p class="hint">為避免把自己鎖在系統外，無法修改或停用目前登入中的帳號。</p>
       </div>`;
 
     $("createAccount").addEventListener("click", createAccount);
     list.forEach((u) => {
-      document.querySelector(`[data-save-u="${u.uid}"]`)?.addEventListener("click", () => saveUserRole(u));
+      document.querySelector(`[data-save-u="${u.uid}"]`)?.addEventListener("click", () => saveUserInfo(u));
       document.querySelector(`[data-toggle-u="${u.uid}"]`)?.addEventListener("click", () => toggleUser(u));
       document.querySelector(`[data-reset-u="${u.email}"]`)?.addEventListener("click", () => sendReset(u));
     });
@@ -815,13 +815,29 @@ async function createAccount() {
   }
 }
 
-async function saveUserRole(u) {
+async function saveUserInfo(u) {
   const btn = document.querySelector(`[data-save-u="${u.uid}"]`);
   if (btn) btn.disabled = true;
   const role = $(`ur-${u.uid}`).value;
+  const houseNumber = $(`uh-${u.uid}`).value.trim();
+  const name = $(`un-${u.uid}`).value.trim();
+  const phone = $(`up-${u.uid}`).value.trim();
+
+  if (role === "resident" && !houseNumber) {
+    $("acAlert").innerHTML = `<div class="alert error">住戶帳號必須填寫門牌號碼</div>`;
+    if (btn) btn.disabled = false;
+    return;
+  }
+
   try {
-    await updateDoc(doc(db, "users", u.uid), { role, updatedAt: serverTimestamp() });
-    writeLog("account", u.uid, "account_update", { 帳號: u.email, 角色: roleLabel(role) }).catch(() => {});
+    await updateDoc(doc(db, "users", u.uid), {
+      role, houseNumber, name, phone,
+      updatedAt: serverTimestamp(),
+    });
+    writeLog("account", u.uid, "account_update", {
+      帳號: u.email, 姓名: name, 門牌: houseNumber, 電話: phone, 角色: roleLabel(role),
+    }).catch(() => {});
+    $("acAlert").innerHTML = `<div class="alert ok">帳號資料已儲存：${escapeHtml(u.email)}</div>`;
     loadAccounts();
   } catch (err) { $("acAlert").innerHTML = errorBox(err); }
   finally { if (btn) btn.disabled = false; }
