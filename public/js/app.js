@@ -1,4 +1,4 @@
-import { db, auth } from "./firebase-config.js?v=20260807h";
+import { db, auth } from "./firebase-config.js?v=20260807i";
 import {
   collection, doc, getDoc, getDocs, query, where, orderBy, limit,
   runTransaction, updateDoc, setDoc, deleteDoc, serverTimestamp,
@@ -8,8 +8,8 @@ import {
   COMMUNITY, generateQueryCode, todayStr, addDays, isoWeekday, weekStartOf,
   slotLockId, escapeHtml, fmtStatus, fmtDateHuman, fmtDateFull, fmtSlot,
   friendlyError, WEEKDAY_LABEL,
-} from "./shared.js?v=20260807h";
-import { watchAuth, login, logout, writeLog, canEnterAdmin } from "./auth.js?v=20260807h";
+} from "./shared.js?v=20260807i";
+import { watchAuth, login, logout, writeLog, canEnterAdmin } from "./auth.js?v=20260807i";
 
 const $ = (id) => document.getElementById(id);
 
