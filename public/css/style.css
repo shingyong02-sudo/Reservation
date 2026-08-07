@@ -1,4 +1,4 @@
-@import url('./tokens.css?v=20260807d');
+@import url('./tokens.css?v=20260807l');
 
 /* ============================================================
    聯懋超綻預約系統 — 元件與版面
@@ -58,29 +58,17 @@ h1, h2, h3, h4 {
 
 .hidden { display: none !important; }
 
-/* ---------- 印章（品牌主要標記）---------- */
+/* ---------- 品牌標記 ---------- */
 
-.seal {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  width: 42px; height: 42px;
+/* 標準字圖檔本身已含「聯懋超綻」四字，所以版首／後台／頁尾都不再
+   另外放一次 .brand-name 文字，只保留副標（公共設施預約系統／物業管理後台） */
+.brand-logo {
+  height: 40px; width: auto;
   flex-shrink: 0;
-  background: var(--seal-600);
+  display: block;
   border-radius: var(--radius-sm);
-  box-shadow: inset 0 0 0 1px rgba(251, 248, 241, 0.35);
-  overflow: hidden;
 }
-.seal span {
-  display: grid;
-  place-items: center;
-  font-family: var(--font-serif);
-  font-weight: var(--weight-bold);
-  font-size: 15px;
-  line-height: 1;
-  color: var(--paper-50);
-}
-.seal.sm { width: 34px; height: 34px; }
-.seal.sm span { font-size: 12px; }
+.brand-logo.sm { height: 32px; }
 
 /* ---------- 版首 ---------- */
 
@@ -198,6 +186,18 @@ main { max-width: var(--container-max); margin: 0 auto; padding: var(--space-6) 
 /* 用 U+FE0E 強制文字樣式的氣象符號，比彩色 emoji 更貼近明體＋茶金的調性 */
 .wx-icon { font-size: var(--text-base); color: var(--gold-700); }
 .wx-temp { font-family: var(--font-serif); font-weight: var(--weight-bold); color: var(--ink-900); }
+.wx-range { font-size: var(--text-xs); color: var(--ink-500); }
+
+/* 帳號列表的搜尋框 */
+.ac-search {
+  flex: 0 1 300px; min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  font-family: inherit; font-size: var(--text-sm);
+  background: var(--surface-card); color: var(--ink-900);
+  min-height: var(--touch);
+}
 
 /* 規格清單：左標籤右值，中間點線 */
 .spec-list { display: flex; flex-direction: column; gap: var(--space-3); font-size: var(--text-sm); margin: 0; }
@@ -727,7 +727,9 @@ td code, .mono { font-family: var(--font-mono); font-size: var(--text-sm); color
      整條 sticky 版首高達 135px */
   .topbar { padding: var(--space-2) var(--space-4); gap: var(--space-3); }
   .topbar .brand { flex: 0 0 auto; }
-  .topbar .brand-name, .topbar .brand-sub { display: none; }
+  /* 標準字圖已含社區名，窄螢幕只留圖、收起副標，把寬度讓給選單 */
+  .topbar .brand-sub { display: none; }
+  .topbar .brand-logo { height: 30px; }
   .topbar nav {
     min-width: 0; gap: var(--space-3);
     overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none;

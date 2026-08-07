@@ -4,7 +4,6 @@ export const COMMUNITY = {
   name: "聯懋超綻",
   org: "聯懋超綻管理委員會",
   subtitle: "公共設施預約系統",
-  sealGlyphs: ["聯", "懋", "超", "綻"],
   phone: "03-8888-5678",
   serviceHours: "09:00 – 18:00",
   // 開放預約的天數範圍（今天起算）
@@ -118,10 +117,6 @@ export function friendlyError(err) {
 }
 
 // 版首／頁尾的印章標記，兩個頁面共用同一份，改一處即可
-export function sealHtml(extraClass = "") {
-  return `<span class="seal ${extraClass}" aria-hidden="true">${
-    COMMUNITY.sealGlyphs.map((g) => `<span>${g}</span>`).join("")}</span>`;
-}
 
 /* ============================================================
    角色

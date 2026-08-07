@@ -1,4 +1,4 @@
-import { db, auth } from "./firebase-config.js?v=20260807k";
+import { db, auth } from "./firebase-config.js?v=20260807l";
 import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
 import {
   getAuth, createUserWithEmailAndPassword, sendPasswordResetEmail,
@@ -10,8 +10,8 @@ import {
 import {
   todayStr, weekStartOf, slotLockId, escapeHtml, fmtStatus, fmtDateHuman, fmtDateFull,
   friendlyError, WEEKDAY_LABEL, ROLES, roleLabel, isStaffRole, ACTION_LABEL, describeDetail,
-} from "./shared.js?v=20260807k";
-import { watchAuth, login, logout, writeLog, canEnterAdmin } from "./auth.js?v=20260807k";
+} from "./shared.js?v=20260807l";
+import { watchAuth, login, logout, writeLog, canEnterAdmin } from "./auth.js?v=20260807l";
 
 const $ = (id) => document.getElementById(id);
 let me = null;
@@ -699,6 +699,22 @@ async function delNotice(n) {
    帳號管理（僅系統管理員）
    ============================================================ */
 
+const AC_PAGE_SIZE = 10;
+let acCache = [];        // 全部帳號，搜尋與分頁都在前端做
+let acPage = 1;
+let acQuery = "";
+let acImportRows = null; // 預覽通過、等待確認建立的列
+
+// 匯出／匯入共用的欄位定義。順序即是 XLSX 的欄序。
+const AC_COLUMNS = [
+  { header: "門牌", key: "houseNumber", width: 22 },
+  { header: "姓名", key: "name", width: 14 },
+  { header: "帳號（Email）", key: "email", width: 30 },
+  { header: "聯絡電話", key: "phone", width: 16 },
+  { header: "角色", key: "role", width: 14 },
+  { header: "狀態", key: "status", width: 10 },
+];
+
 async function loadAccounts() {
   const el = $("view-accounts");
   if (!isSystemAdmin()) {
@@ -720,8 +736,10 @@ async function loadAccounts() {
     // 不用 orderBy：Firestore 會把缺少排序欄位的文件整筆略過，
     // 沒填門牌的管理員帳號就會憑空從列表消失。改成全部取回後在前端排序。
     const snap = await getDocs(collection(db, "users"));
-    const list = snap.docs.map((d) => ({ uid: d.id, ...d.data() }))
+    acCache = snap.docs.map((d) => ({ uid: d.id, ...d.data() }))
       .sort((a, b) => (a.houseNumber || "").localeCompare(b.houseNumber || "", "zh-Hant"));
+    acPage = 1; acQuery = ""; acImportRows = null;
+    const list = acCache;
 
     el.innerHTML = head("帳號管理", `共 ${list.length} 個帳號`) + `
       <div class="card">
@@ -745,33 +763,433 @@ async function loadAccounts() {
       </div>
 
       <div class="card">
-        <h3>帳號列表</h3>
-        ${list.length === 0 ? `<p class="empty">尚無帳號</p>` : tableWrap(`
-          <table><thead><tr><th>門牌</th><th>姓名</th><th>帳號</th><th>電話</th><th>角色</th><th>狀態</th><th>操作</th></tr></thead>
-          <tbody>${list.map((u) => `<tr class="${u.disabled ? "row-danger" : ""}">
-            <td><input type="text" id="uh-${u.uid}" value="${escapeHtml(u.houseNumber || "")}" placeholder="門牌" class="table-input" style="width:110px" ${u.uid === me.uid ? "disabled" : ""}></td>
-            <td><input type="text" id="un-${u.uid}" value="${escapeHtml(u.name || "")}" placeholder="姓名" class="table-input" style="width:90px" ${u.uid === me.uid ? "disabled" : ""}></td>
-            <td class="sub-text">${escapeHtml(u.email || "")}</td>
-            <td><input type="text" id="up-${u.uid}" value="${escapeHtml(u.phone || "")}" placeholder="電話" class="table-input" style="width:125px" ${u.uid === me.uid ? "disabled" : ""}></td>
-            <td><select id="ur-${u.uid}" ${u.uid === me.uid ? "disabled" : ""}>
-              ${Object.entries(ROLES).map(([k, v]) => `<option value="${k}" ${u.role === k ? "selected" : ""}>${v}</option>`).join("")}
-            </select></td>
-            <td>${u.disabled ? `<span class="badge seal">已停用</span>` : `<span class="badge jade">啟用中</span>`}</td>
-            <td class="action-cell">
-              <button type="button" class="btn primary sm" data-save-u="${escapeHtml(u.uid)}" ${u.uid === me.uid ? "disabled" : ""}>儲存</button>
-              <button type="button" class="btn secondary sm" data-toggle-u="${escapeHtml(u.uid)}" ${u.uid === me.uid ? "disabled" : ""}>${u.disabled ? "啟用" : "停用"}</button>
-              <button type="button" class="btn ghost sm" data-reset-u="${escapeHtml(u.email || "")}">重設密碼</button>
-            </td></tr>`).join("")}</tbody></table>`)}
+        <h3>批次匯入／匯出</h3>
+        <div class="row">
+          <div class="btn-cell"><button type="button" class="btn secondary" id="acExport">匯出 XLSX</button></div>
+          <div class="btn-cell"><button type="button" class="btn ghost sm" id="acTemplate">下載空白範本</button></div>
+        </div>
+        <p class="hint">匯出的是目前搜尋條件下的清單；未搜尋時即為全部帳號。</p>
+        <div class="row" style="margin-top:16px;border-top:1px dotted var(--border-strong);padding-top:16px">
+          <div class="field"><label for="acFile">選擇要匯入的 XLSX</label><input type="file" id="acFile" accept=".xlsx"></div>
+          <div class="field"><label for="acBulkPw">統一初始密碼（至少 6 碼）</label><input type="text" id="acBulkPw" autocomplete="off" placeholder="所有新帳號共用"></div>
+        </div>
+        <p class="hint">匯入<strong>只會建立新帳號</strong>；Email 已存在的列一律略過，不會覆寫既有資料。
+          所有新帳號套用同一組初始密碼，請務必要求住戶首次登入後立即更改。</p>
+        <button type="button" class="btn secondary" id="acPreview">讀取檔案並預覽</button>
+        <div id="acImportInfo" aria-live="polite"></div>
+      </div>
+
+      <div class="card">
+        <div class="result-head">
+          <h3 style="margin:0">帳號列表</h3>
+          <input type="search" id="acSearch" class="ac-search" placeholder="搜尋門牌／姓名／Email／電話／角色" aria-label="搜尋帳號">
+        </div>
+        <div id="acTable"></div>
         <p class="hint">為避免把自己鎖在系統外，無法修改或停用目前登入中的帳號。</p>
       </div>`;
 
     $("createAccount").addEventListener("click", createAccount);
-    list.forEach((u) => {
-      document.querySelector(`[data-save-u="${u.uid}"]`)?.addEventListener("click", () => saveUserInfo(u));
-      document.querySelector(`[data-toggle-u="${u.uid}"]`)?.addEventListener("click", () => toggleUser(u));
-      document.querySelector(`[data-reset-u="${u.email}"]`)?.addEventListener("click", () => sendReset(u));
-    });
+    $("acSearch").addEventListener("input", (e) => { acQuery = e.target.value; acPage = 1; renderAccounts(); });
+    $("acExport").addEventListener("click", exportAccounts);
+    $("acTemplate").addEventListener("click", exportTemplate);
+    $("acPreview").addEventListener("click", previewImport);
+    renderAccounts();
   } catch (err) { el.innerHTML = head("帳號管理", "") + errorBox(err); }
+}
+
+/* ---------- 列表：搜尋 + 每頁 10 筆 ---------- */
+
+function filteredAccounts() {
+  const q = acQuery.trim().toLowerCase();
+  if (!q) return acCache;
+  return acCache.filter((u) => [u.houseNumber, u.name, u.email, u.phone, roleLabel(u.role)]
+    .some((v) => String(v || "").toLowerCase().includes(q)));
+}
+
+function renderAccounts() {
+  const box = $("acTable");
+  if (!box) return;
+  const list = filteredAccounts();
+  const total = list.length;
+
+  if (!total) {
+    box.innerHTML = `<p class="empty">${acQuery.trim() ? "沒有符合搜尋條件的帳號" : "尚無帳號"}</p>`;
+    updateExportLabel(0);
+    return;
+  }
+
+  const pages = Math.max(1, Math.ceil(total / AC_PAGE_SIZE));
+  acPage = Math.min(Math.max(1, acPage), pages);
+  const slice = list.slice((acPage - 1) * AC_PAGE_SIZE, acPage * AC_PAGE_SIZE);
+
+  box.innerHTML = tableWrap(`
+    <table><thead><tr><th>門牌</th><th>姓名</th><th>帳號</th><th>電話</th><th>角色</th><th>狀態</th><th>操作</th></tr></thead>
+    <tbody>${slice.map((u) => `<tr class="${u.disabled ? "row-danger" : ""}">
+      <td><input type="text" id="uh-${u.uid}" value="${escapeHtml(u.houseNumber || "")}" placeholder="門牌" class="table-input" style="width:110px" ${u.uid === me.uid ? "disabled" : ""}></td>
+      <td><input type="text" id="un-${u.uid}" value="${escapeHtml(u.name || "")}" placeholder="姓名" class="table-input" style="width:90px" ${u.uid === me.uid ? "disabled" : ""}></td>
+      <td class="sub-text">${escapeHtml(u.email || "")}</td>
+      <td><input type="text" id="up-${u.uid}" value="${escapeHtml(u.phone || "")}" placeholder="電話" class="table-input" style="width:125px" ${u.uid === me.uid ? "disabled" : ""}></td>
+      <td><select id="ur-${u.uid}" ${u.uid === me.uid ? "disabled" : ""}>
+        ${Object.entries(ROLES).map(([k, v]) => `<option value="${k}" ${u.role === k ? "selected" : ""}>${v}</option>`).join("")}
+      </select></td>
+      <td>${u.disabled ? `<span class="badge seal">已停用</span>` : `<span class="badge jade">啟用中</span>`}</td>
+      <td class="action-cell">
+        <button type="button" class="btn primary sm" data-save-u="${escapeHtml(u.uid)}" ${u.uid === me.uid ? "disabled" : ""}>儲存</button>
+        <button type="button" class="btn secondary sm" data-toggle-u="${escapeHtml(u.uid)}" ${u.uid === me.uid ? "disabled" : ""}>${u.disabled ? "啟用" : "停用"}</button>
+        <button type="button" class="btn ghost sm" data-reset-u="${escapeHtml(u.uid)}">重設密碼</button>
+      </td></tr>`).join("")}</tbody></table>`) + `
+    <div class="pager">
+      <button type="button" class="btn secondary sm" id="acPrev" ${acPage === 1 ? "disabled" : ""}>‹ 上一頁</button>
+      <span class="pager-info">第 ${acPage} / ${pages} 頁・共 ${total} 筆${acQuery.trim() ? `（已篩選，全部 ${acCache.length} 筆）` : ""}</span>
+      <button type="button" class="btn secondary sm" id="acNext" ${acPage === pages ? "disabled" : ""}>下一頁 ›</button>
+    </div>
+    <div id="acAlert2" aria-live="polite"></div>`;
+
+  // 只掛當頁這 10 筆的事件
+  slice.forEach((u) => {
+    document.querySelector(`[data-save-u="${u.uid}"]`)?.addEventListener("click", () => saveUserInfo(u));
+    document.querySelector(`[data-toggle-u="${u.uid}"]`)?.addEventListener("click", () => toggleUser(u));
+    // 用 uid 而非 email 當選擇器：兩個帳號都沒填 email 時，
+    // [data-reset-u=""] 會撞在一起，只有第一筆掛得到事件
+    document.querySelector(`[data-reset-u="${u.uid}"]`)?.addEventListener("click", () => sendReset(u));
+  });
+  $("acPrev").addEventListener("click", () => { acPage--; renderAccounts(); });
+  $("acNext").addEventListener("click", () => { acPage++; renderAccounts(); });
+  updateExportLabel(total);
+}
+
+function updateExportLabel(n) {
+  const btn = $("acExport");
+  if (btn) btn.textContent = `匯出 XLSX（${n} 筆）`;
+}
+
+/* ---------- XLSX 匯出 ---------- */
+
+// ExcelJS 有 947 KB，只在真的要匯出／匯入時才載入，不拖慢後台其他分頁。
+// 後台是敏感頁面，第三方程式碼一律加 SRI，被竄改就不會執行。
+const EXCELJS_SRC = "https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js";
+const EXCELJS_SRI = "sha384-Pqp51FUN2/qzfxZxBCtF0stpc9ONI6MYZpVqmo8m20SoaQCzf+arZvACkLkirlPz";
+let excelPromise = null;
+
+function loadExcel() {
+  if (window.ExcelJS) return Promise.resolve(window.ExcelJS);
+  if (excelPromise) return excelPromise;
+  excelPromise = new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = EXCELJS_SRC;
+    s.integrity = EXCELJS_SRI;
+    s.crossOrigin = "anonymous";
+    s.onload = () => window.ExcelJS ? resolve(window.ExcelJS) : reject(new Error("ExcelJS 載入後找不到物件"));
+    s.onerror = () => { excelPromise = null; reject(new Error("無法載入試算表元件，請確認網路連線")); };
+    document.head.appendChild(s);
+  });
+  return excelPromise;
+}
+
+function stamp(d = new Date()) {
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function thinBorder(argb) {
+  const s = { style: "thin", color: { argb } };
+  return { top: s, left: s, bottom: s, right: s };
+}
+
+function buildAccountsWorkbook(ExcelJS, users, { note = "" } = {}) {
+  const now = new Date();
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "聯懋超綻公共設施預約系統";
+  wb.created = now;
+
+  const ws = wb.addWorksheet("帳號列表", {
+    views: [{ state: "frozen", ySplit: 2 }],
+    pageSetup: { paperSize: 9, orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
+  });
+
+  ws.mergeCells(1, 1, 1, AC_COLUMNS.length);
+  const banner = ws.getCell(1, 1);
+  banner.value = `聯懋超綻 帳號列表（匯出時間 ${stamp(now)}，共 ${users.length} 筆${note}）`;
+  banner.font = { name: "Microsoft JhengHei", size: 13, bold: true, color: { argb: "FF1C1814" } };
+  banner.alignment = { vertical: "middle", horizontal: "left" };
+  banner.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF6F0E4" } };
+  ws.getRow(1).height = 26;
+
+  ws.columns = AC_COLUMNS.map((c) => ({ key: c.key, width: c.width }));
+  const headRow = ws.getRow(2);
+  AC_COLUMNS.forEach((c, i) => { headRow.getCell(i + 1).value = c.header; });
+  headRow.height = 20;
+  headRow.eachCell((cell) => {
+    cell.font = { name: "Microsoft JhengHei", bold: true, color: { argb: "FFFBF8F1" } };
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFC8A04A" } };
+    cell.alignment = { vertical: "middle", horizontal: "center" };
+    cell.border = thinBorder("FFB08A3E");
+  });
+
+  users.forEach((u, idx) => {
+    const row = ws.addRow({
+      houseNumber: u.houseNumber || "",
+      name: u.name || "",
+      email: u.email || "",
+      phone: u.phone || "",
+      role: roleLabel(u.role),
+      status: u.disabled ? "已停用" : "啟用中",
+    });
+    row.eachCell((cell) => {
+      cell.font = { name: "Microsoft JhengHei", size: 11 };
+      cell.alignment = { vertical: "middle" };
+      cell.border = thinBorder("FFE7DFCF");
+    });
+    // 電話一定要存成文字，否則 09 開頭會被 Excel 當數字吃掉前導零
+    row.getCell("phone").numFmt = "@";
+    row.getCell("status").alignment = { vertical: "middle", horizontal: "center" };
+    const fill = u.disabled ? "FFFAF0EE" : (idx % 2 === 1 ? "FFFBF9F4" : null);
+    if (fill) row.eachCell((cell) => { cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: fill } }; });
+  });
+
+  ws.autoFilter = { from: { row: 2, column: 1 }, to: { row: 2, column: AC_COLUMNS.length } };
+  return wb;
+}
+
+async function downloadWorkbook(wb, filename) {
+  const buf = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function exportAccounts() {
+  const btn = $("acExport");
+  const label = btn.textContent;
+  btn.disabled = true; btn.textContent = "產生中…";
+  try {
+    const ExcelJS = await loadExcel();
+    const list = filteredAccounts();
+    const q = acQuery.trim();
+    const wb = buildAccountsWorkbook(ExcelJS, list, { note: q ? `，搜尋條件「${q}」` : "" });
+    await downloadWorkbook(wb, `聯懋超綻_帳號列表_${stamp().replace(/[ :]/g, "")}.xlsx`);
+  } catch (err) {
+    $("acImportInfo").innerHTML = errorBox(err);
+  } finally {
+    btn.disabled = false; btn.textContent = label;
+  }
+}
+
+async function exportTemplate() {
+  const btn = $("acTemplate");
+  btn.disabled = true;
+  try {
+    const ExcelJS = await loadExcel();
+    // 範本用兩筆範例列示範格式，管理者照著改就好
+    const wb = buildAccountsWorkbook(ExcelJS, [
+      { houseNumber: "A 棟 12 樓之 3", name: "王小明", email: "wang@example.com", phone: "0912345678", role: "resident" },
+      { houseNumber: "B 棟 8 樓之 1", name: "陳美麗", email: "chen@example.com", phone: "0922333444", role: "resident" },
+    ], { note: "，範本" });
+    await downloadWorkbook(wb, "聯懋超綻_帳號匯入範本.xlsx");
+  } catch (err) {
+    $("acImportInfo").innerHTML = errorBox(err);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/* ---------- XLSX 匯入 ---------- */
+
+// ExcelJS 的 cell.value 型別很雜：字串、數字、Date、
+// {text,hyperlink}（Excel 會把 Email 自動變超連結）、{richText}、{formula,result}。
+// 一律先攤平成純文字再處理。
+function cellText(cell) {
+  const v = cell?.value;
+  if (v == null) return "";
+  if (typeof v === "string") return v.trim();
+  if (typeof v === "number") return String(v);
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  if (Array.isArray(v.richText)) return v.richText.map((r) => r.text).join("").trim();
+  if (v.text != null) return String(v.text).trim();
+  if (v.result != null) return String(v.result).trim();
+  return String(v).trim();
+}
+
+// 標題文字 → 欄位。必須用「整格精確比對」而非包含比對：
+// 匯出檔第 1 列的橫幅是「聯懋超綻 帳號列表（匯出時間…）」，
+// 用包含比對會把橫幅誤判成標題列，欄位對應整個錯掉。
+const HEADER_ALIASES = {
+  houseNumber: ["門牌", "門牌號碼"],
+  name: ["姓名", "住戶姓名"],
+  email: ["帳號(email)", "帳號", "email", "電子郵件", "信箱"],
+  phone: ["聯絡電話", "電話", "手機"],
+  role: ["角色", "權限"],
+};
+
+function normHeader(s) {
+  return (s || "").replace(/\s/g, "").replace(/（/g, "(").replace(/）/g, ")").toLowerCase();
+}
+
+// 從前 10 列裡找出真正的標題列：必須有 Email 欄，且至少對應到 2 個已知欄位
+function findHeaderRow(ws) {
+  for (let r = 1; r <= Math.min(ws.rowCount, 10); r++) {
+    const colOf = {};
+    ws.getRow(r).eachCell({ includeEmpty: true }, (cell, c) => {
+      const s = normHeader(cellText(cell));
+      if (!s) return;
+      for (const [key, aliases] of Object.entries(HEADER_ALIASES)) {
+        if (colOf[key] === undefined && aliases.includes(s)) { colOf[key] = c; return; }
+      }
+    });
+    if (colOf.email !== undefined && Object.keys(colOf).length >= 2) return { headerRow: r, colOf };
+  }
+  return null;
+}
+
+function parseRoleCell(s) {
+  const t = (s || "").trim();
+  if (!t) return "resident";              // 留空預設為一般住戶
+  if (ROLES[t]) return t;                 // 直接寫代碼
+  const hit = Object.entries(ROLES).find(([, label]) => label === t);
+  return hit ? hit[0] : null;             // null 代表無法辨識
+}
+
+// Excel 把 0912345678 存成數字時前導零會消失，補回來
+function normalizePhone(s) {
+  const t = (s || "").trim();
+  return /^9\d{8}$/.test(t) ? `0${t}` : t;
+}
+
+async function previewImport() {
+  const info = $("acImportInfo");
+  const file = $("acFile").files?.[0];
+  const pw = $("acBulkPw").value;
+  acImportRows = null;
+
+  if (!file) { info.innerHTML = `<div class="alert error">請先選擇要匯入的 XLSX 檔</div>`; return; }
+  if (pw.length < 6) { info.innerHTML = `<div class="alert error">請先填寫統一初始密碼，至少 6 碼</div>`; return; }
+
+  const btn = $("acPreview");
+  btn.disabled = true; btn.textContent = "讀取中…";
+  try {
+    const ExcelJS = await loadExcel();
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(await file.arrayBuffer());
+    const ws = wb.worksheets[0];
+    if (!ws) throw new Error("這個檔案裡沒有任何工作表");
+
+    const found = findHeaderRow(ws);
+    if (!found) {
+      throw new Error("找不到欄位標題列。請確認檔案裡有「帳號（Email）」這一欄，建議先下載空白範本");
+    }
+    const { headerRow, colOf } = found;
+
+    const existing = new Set(acCache.map((u) => (u.email || "").toLowerCase()).filter(Boolean));
+    const seen = new Set();
+    const ok = [], skipped = [], bad = [];
+
+    for (let r = headerRow + 1; r <= ws.rowCount; r++) {
+      const row = ws.getRow(r);
+      const get = (k) => (colOf[k] ? cellText(row.getCell(colOf[k])) : "");
+      const email = get("email").toLowerCase();
+      const name = get("name");
+      const houseNumber = get("houseNumber");
+      const phone = normalizePhone(get("phone"));
+      const roleRaw = get("role");
+
+      if (!email && !name && !houseNumber && !phone) continue;   // 整列空白，跳過
+
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { bad.push({ r, email: email || "（空白）", why: "Email 格式不正確" }); continue; }
+      if (seen.has(email)) { bad.push({ r, email, why: "檔案內重複出現" }); continue; }
+      seen.add(email);
+
+      const role = parseRoleCell(roleRaw);
+      if (!role) { bad.push({ r, email, why: `無法辨識的角色「${roleRaw}」` }); continue; }
+      if (role === "resident" && !houseNumber) { bad.push({ r, email, why: "住戶帳號必須填門牌" }); continue; }
+
+      if (existing.has(email)) { skipped.push({ r, email }); continue; }
+      ok.push({ r, email, name, houseNumber, phone, role });
+    }
+
+    acImportRows = ok;
+    info.innerHTML = `
+      <div class="alert ${ok.length ? "ok" : "error"}" style="margin-top:12px">
+        讀取完成：可建立 <strong>${ok.length}</strong> 筆、
+        略過 <strong>${skipped.length}</strong> 筆（Email 已存在）、
+        錯誤 <strong>${bad.length}</strong> 筆
+      </div>
+      ${bad.length ? `<div class="card" style="margin-top:12px">
+        <h3 style="font-size:var(--text-base)">需要修正的列</h3>
+        ${tableWrap(`<table><thead><tr><th>列號</th><th>Email</th><th>原因</th></tr></thead><tbody>
+          ${bad.slice(0, 50).map((b) => `<tr><td>${b.r}</td><td>${escapeHtml(b.email)}</td><td>${escapeHtml(b.why)}</td></tr>`).join("")}
+        </tbody></table>`)}
+        ${bad.length > 50 ? `<p class="hint">僅顯示前 50 筆。</p>` : ""}
+      </div>` : ""}
+      ${skipped.length ? `<p class="hint">略過的 Email：${escapeHtml(skipped.slice(0, 20).map((s) => s.email).join("、"))}${skipped.length > 20 ? ` … 等 ${skipped.length} 筆` : ""}</p>` : ""}
+      ${ok.length ? `<button type="button" class="btn primary" id="acDoImport" style="margin-top:12px">確認建立這 ${ok.length} 筆帳號</button>` : ""}`;
+    if (ok.length) $("acDoImport").addEventListener("click", runImport);
+  } catch (err) {
+    info.innerHTML = errorBox(err);
+  } finally {
+    btn.disabled = false; btn.textContent = "讀取檔案並預覽";
+  }
+}
+
+async function runImport() {
+  if (!acImportRows?.length) return;
+  const pw = $("acBulkPw").value;
+  if (pw.length < 6) { $("acImportInfo").innerHTML = `<div class="alert error">初始密碼至少 6 碼</div>`; return; }
+  if (!confirm(`確定要建立 ${acImportRows.length} 個帳號嗎？\n所有帳號的初始密碼都會是你填寫的那一組。`)) return;
+
+  const btn = $("acDoImport");
+  btn.disabled = true;
+  const info = $("acImportInfo");
+  const done = [], failed = [];
+
+  // 整批共用一個第二 Firebase 實例，避免每筆都 initializeApp／deleteApp。
+  // 用第二實例才不會把目前登入的管理員換成剛建立的帳號。
+  let secondary = null;
+  try {
+    secondary = initializeApp(db.app.options, `bulk-${Date.now()}`);
+    const sAuth = getAuth(secondary);
+    for (const row of acImportRows) {
+      btn.textContent = `建立中… ${done.length + failed.length + 1} / ${acImportRows.length}`;
+      try {
+        const cred = await createUserWithEmailAndPassword(sAuth, row.email, pw);
+        await setDoc(doc(db, "users", cred.user.uid), {
+          email: row.email, name: row.name, houseNumber: row.houseNumber,
+          phone: row.phone, role: row.role, disabled: false,
+          createdAt: serverTimestamp(), createdBy: me.email,
+        });
+        writeLog("account", cred.user.uid, "account_create", {
+          帳號: row.email, 姓名: row.name, 門牌: row.houseNumber,
+          角色: roleLabel(row.role), 批次匯入: true,
+        });
+        done.push(row.email);
+      } catch (err) {
+        const msg = err.code === "auth/email-already-in-use" ? "此 Email 已被註冊"
+          : err.code === "auth/weak-password" ? "密碼強度不足"
+          : err.code === "auth/invalid-email" ? "Email 格式不正確"
+          : friendlyError(err);
+        failed.push({ email: row.email, msg });
+      }
+    }
+  } catch (err) {
+    info.innerHTML = errorBox(err);
+  } finally {
+    if (secondary) await deleteApp(secondary).catch(() => {});
+  }
+
+  acImportRows = null;
+  info.innerHTML = `
+    <div class="alert ${failed.length ? "error" : "ok"}" style="margin-top:12px">
+      匯入完成：成功 <strong>${done.length}</strong> 筆${failed.length ? `、失敗 <strong>${failed.length}</strong> 筆` : ""}
+    </div>
+    ${failed.length ? tableWrap(`<table><thead><tr><th>Email</th><th>失敗原因</th></tr></thead><tbody>
+      ${failed.map((f) => `<tr><td>${escapeHtml(f.email)}</td><td>${escapeHtml(f.msg)}</td></tr>`).join("")}
+    </tbody></table>`) : ""}`;
+  $("acFile").value = "";
+  loadAccounts();
 }
 
 async function createAccount() {

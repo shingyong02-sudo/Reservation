@@ -1,11 +1,11 @@
-import { db, auth } from "./firebase-config.js?v=20260807k";
+import { db, auth } from "./firebase-config.js?v=20260807l";
 import {
   doc, getDoc, setDoc, collection, addDoc, serverTimestamp,
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 import {
   signInWithEmailAndPassword, signOut, onAuthStateChanged,
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
-import { describeDevice, fetchClientIp, isStaffRole } from "./shared.js?v=20260807k";
+import { describeDevice, fetchClientIp, isStaffRole } from "./shared.js?v=20260807l";
 
 /* 目前登入者的個人檔（users/{uid}），登入後填入 */
 export let profile = null;

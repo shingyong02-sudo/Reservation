@@ -1,4 +1,4 @@
-import { db, auth } from "./firebase-config.js?v=20260807k";
+import { db, auth } from "./firebase-config.js?v=20260807l";
 import {
   collection, doc, getDoc, getDocs, query, where, orderBy, limit,
   runTransaction, updateDoc, setDoc, deleteDoc, serverTimestamp,
@@ -8,8 +8,8 @@ import {
   COMMUNITY, generateQueryCode, todayStr, addDays, isoWeekday, weekStartOf,
   slotLockId, escapeHtml, fmtStatus, fmtDateHuman, fmtDateFull, fmtSlot,
   friendlyError, WEEKDAY_LABEL,
-} from "./shared.js?v=20260807k";
-import { watchAuth, login, logout, writeLog, canEnterAdmin } from "./auth.js?v=20260807k";
+} from "./shared.js?v=20260807l";
+import { watchAuth, login, logout, writeLog, canEnterAdmin } from "./auth.js?v=20260807l";
 
 const $ = (id) => document.getElementById(id);
 
@@ -126,7 +126,9 @@ async function doLogin() {
 const WEATHER = {
   lat: 23.9769,
   lon: 121.6044,
-  cacheKey: "wx-hualien",
+  // 快取鍵帶版本：加了高低溫之後資料形狀變了，
+  // 舊的快取若被讀到會少欄位而顯示 undefined
+  cacheKey: "wx-hualien-v2",
   cacheMinutes: 30,
 };
 
@@ -165,10 +167,14 @@ async function loadWeather() {
     const cached = readWeatherCache();
     const wx = cached || await fetchWeather();
     const { text, icon } = describeWeather(wx.code);
+    const now = Math.round(wx.temp);
+    const lo = Math.round(wx.min);
+    const hi = Math.round(wx.max);
     $("wxIcon").textContent = icon;
     $("wxText").textContent = text;
-    $("wxTemp").textContent = `${Math.round(wx.temp)}°`;
-    box.title = `花蓮市 ${text} ${Math.round(wx.temp)}°C`;
+    $("wxTemp").textContent = `${now}°`;
+    $("wxRange").textContent = `今日 ${lo}° / ${hi}°`;
+    box.title = `花蓮市 ${text}，目前 ${now}°C，今日最低 ${lo}°C、最高 ${hi}°C`;
     box.classList.remove("hidden");
   } catch {
     // 天氣只是附加資訊，抓不到就整塊不顯示，不要拿錯誤訊息打擾住戶
@@ -188,15 +194,24 @@ function readWeatherCache() {
 
 async function fetchWeather() {
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${WEATHER.lat}`
-    + `&longitude=${WEATHER.lon}&current=temperature_2m,weather_code&timezone=Asia%2FTaipei`;
+    + `&longitude=${WEATHER.lon}&current=temperature_2m,weather_code`
+    + `&daily=temperature_2m_min,temperature_2m_max&forecast_days=1&timezone=Asia%2FTaipei`;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 6000);
   try {
     const res = await fetch(url, { signal: ctrl.signal });
     if (!res.ok) throw new Error(`weather ${res.status}`);
     const j = await res.json();
-    const wx = { temp: j.current.temperature_2m, code: j.current.weather_code, at: Date.now() };
-    if (typeof wx.temp !== "number" || typeof wx.code !== "number") throw new Error("weather shape");
+    const wx = {
+      temp: j.current.temperature_2m,
+      code: j.current.weather_code,
+      min: j.daily.temperature_2m_min[0],
+      max: j.daily.temperature_2m_max[0],
+      at: Date.now(),
+    };
+    if (["temp", "code", "min", "max"].some((k) => typeof wx[k] !== "number")) {
+      throw new Error("weather shape");
+    }
     try { sessionStorage.setItem(WEATHER.cacheKey, JSON.stringify(wx)); } catch { /* 無痕模式會擋，忽略 */ }
     return wx;
   } finally {
