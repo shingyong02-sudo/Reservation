@@ -1,4 +1,4 @@
-import { db, auth } from "./firebase-config.js?v=20260807i";
+import { db, auth } from "./firebase-config.js?v=20260807j";
 import {
   collection, doc, getDoc, getDocs, query, where, orderBy, limit,
   runTransaction, updateDoc, setDoc, deleteDoc, serverTimestamp,
@@ -8,8 +8,8 @@ import {
   COMMUNITY, generateQueryCode, todayStr, addDays, isoWeekday, weekStartOf,
   slotLockId, escapeHtml, fmtStatus, fmtDateHuman, fmtDateFull, fmtSlot,
   friendlyError, WEEKDAY_LABEL,
-} from "./shared.js?v=20260807i";
-import { watchAuth, login, logout, writeLog, canEnterAdmin } from "./auth.js?v=20260807i";
+} from "./shared.js?v=20260807j";
+import { watchAuth, login, logout, writeLog, canEnterAdmin } from "./auth.js?v=20260807j";
 
 const $ = (id) => document.getElementById(id);
 
@@ -567,8 +567,12 @@ async function submitBooking() {
       });
       tx.set(lockRef, { facilityId: f.id, date, slotId: slot.id, status, bookingId: code, createdAt: serverTimestamp() });
       tx.set(holdRef, { uid, facilityId: f.id, date, startTime: slot.startTime, bookingId: code });
-      if (fd.dailyLimitPerUnit) tx.set(dailyRef, { count: dailyCount + 1 });
-      if (fd.weeklyLimitPerUnit) tx.set(weeklyRef, { count: weeklyCount + 1 });
+      if (fd.dailyLimitPerUnit) {
+        tx.set(dailyRef, { count: dailyCount + 1, facilityId: f.id, uid, date });
+      }
+      if (fd.weeklyLimitPerUnit) {
+        tx.set(weeklyRef, { count: weeklyCount + 1, facilityId: f.id, uid, date: weekStartOf(date) });
+      }
 
       return { code, status };
     });
@@ -710,10 +714,10 @@ async function doCancel(code, b) {
       tx.delete(holdRef);
 
       if (dailySnap.exists() && dailySnap.data().count > 0) {
-        tx.set(dailyRef, { count: dailySnap.data().count - 1 });
+        tx.set(dailyRef, { count: dailySnap.data().count - 1, facilityId: b.facilityId, uid: me.uid, date: b.date });
       }
       if (weeklySnap.exists() && weeklySnap.data().count > 0) {
-        tx.set(weeklyRef, { count: weeklySnap.data().count - 1 });
+        tx.set(weeklyRef, { count: weeklySnap.data().count - 1, facilityId: b.facilityId, uid: me.uid, date: weekStartOf(b.date) });
       }
     });
 

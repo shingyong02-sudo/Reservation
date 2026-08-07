@@ -109,26 +109,30 @@ service cloud.firestore {
     // doc id 以 uid 為主鍵，住戶登入後才寫得動，
     // 且只允許 ±1、不得為負，無法自行歸零繞過上限。
     match /unitDailyUsage/{id} {
-      allow read: if isActive() && (isStaff() || id.matches('^.+__' + request.auth.uid + '__.+$'));
-      allow create: if isActive() && id.matches('^.+__' + request.auth.uid + '__.+$')
-                    && request.resource.data.keys().hasOnly(['count'])
+      allow read: if isActive() && (isStaff() || resource == null || resource.data.uid == request.auth.uid);
+      allow create: if isActive()
+                    && request.resource.data.uid == request.auth.uid
+                    && id == request.resource.data.facilityId + '__' + request.resource.data.uid + '__' + request.resource.data.date
                     && request.resource.data.count == 1;
       allow update: if isStaff()
-                    || (isActive() && id.matches('^.+__' + request.auth.uid + '__.+$')
-                        && request.resource.data.keys().hasOnly(['count'])
+                    || (isActive()
+                        && request.resource.data.uid == request.auth.uid
+                        && id == request.resource.data.facilityId + '__' + request.resource.data.uid + '__' + request.resource.data.date
                         && (request.resource.data.count == resource.data.count + 1
                             || request.resource.data.count == resource.data.count - 1)
                         && request.resource.data.count >= 0);
       allow delete: if isStaff();
     }
     match /unitWeeklyUsage/{id} {
-      allow read: if isActive() && (isStaff() || id.matches('^.+__' + request.auth.uid + '__.+$'));
-      allow create: if isActive() && id.matches('^.+__' + request.auth.uid + '__.+$')
-                    && request.resource.data.keys().hasOnly(['count'])
+      allow read: if isActive() && (isStaff() || resource == null || resource.data.uid == request.auth.uid);
+      allow create: if isActive()
+                    && request.resource.data.uid == request.auth.uid
+                    && id == request.resource.data.facilityId + '__' + request.resource.data.uid + '__' + request.resource.data.date
                     && request.resource.data.count == 1;
       allow update: if isStaff()
-                    || (isActive() && id.matches('^.+__' + request.auth.uid + '__.+$')
-                        && request.resource.data.keys().hasOnly(['count'])
+                    || (isActive()
+                        && request.resource.data.uid == request.auth.uid
+                        && id == request.resource.data.facilityId + '__' + request.resource.data.uid + '__' + request.resource.data.date
                         && (request.resource.data.count == resource.data.count + 1
                             || request.resource.data.count == resource.data.count - 1)
                         && request.resource.data.count >= 0);

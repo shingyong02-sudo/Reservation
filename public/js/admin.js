@@ -1,4 +1,4 @@
-import { db, auth } from "./firebase-config.js?v=20260807i";
+import { db, auth } from "./firebase-config.js?v=20260807j";
 import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
 import {
   getAuth, createUserWithEmailAndPassword, sendPasswordResetEmail,
@@ -10,8 +10,8 @@ import {
 import {
   todayStr, weekStartOf, slotLockId, escapeHtml, fmtStatus, fmtDateHuman, fmtDateFull,
   friendlyError, WEEKDAY_LABEL, ROLES, roleLabel, isStaffRole, ACTION_LABEL, describeDetail,
-} from "./shared.js?v=20260807i";
-import { watchAuth, login, logout, writeLog, canEnterAdmin } from "./auth.js?v=20260807i";
+} from "./shared.js?v=20260807j";
+import { watchAuth, login, logout, writeLog, canEnterAdmin } from "./auth.js?v=20260807j";
 
 const $ = (id) => document.getElementById(id);
 let me = null;
@@ -299,10 +299,10 @@ async function setStatus(b, newStatus, action) {
         tx.delete(holdRef);
 
         if (dailySnap && dailySnap.exists() && dailySnap.data().count > 0) {
-          tx.set(dailyRef, { count: dailySnap.data().count - 1 });
+          tx.set(dailyRef, { count: dailySnap.data().count - 1, facilityId: b.facilityId, uid: b.uid, date: b.date });
         }
         if (weeklySnap && weeklySnap.exists() && weeklySnap.data().count > 0) {
-          tx.set(weeklyRef, { count: weeklySnap.data().count - 1 });
+          tx.set(weeklyRef, { count: weeklySnap.data().count - 1, facilityId: b.facilityId, uid: b.uid, date: weekStartOf(b.date) });
         }
       }
     });
