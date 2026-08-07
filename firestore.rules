@@ -75,15 +75,15 @@ service cloud.firestore {
       allow create: if isActive()
                     && lockId == request.resource.data.facilityId + '__' + request.resource.data.date + '__' + request.resource.data.slotId
                     && request.resource.data.status in ['confirmed', 'pending_review']
-                    && exists(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId))
-                    && get(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.uid == request.auth.uid;
+                    && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)) != null
+                    && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.uid == request.auth.uid;
       allow update: if isStaff()
                     // 已取消的鎖可被別人重新佔用
                     || (isActive() && resource.data.status == 'cancelled'
                         && request.resource.data.status in ['confirmed', 'pending_review'])
                     // 對應的預約已取消／拒絕時，可把鎖釋出（不影響他人的有效預約）
                     || (isActive() && request.resource.data.status == 'cancelled'
-                        && get(/databases/$(database)/documents/bookings/$(resource.data.bookingId)).data.status
+                        && getAfter(/databases/$(database)/documents/bookings/$(resource.data.bookingId)).data.status
                            in ['cancelled', 'rejected']);
       allow delete: if isStaff();
     }
@@ -96,12 +96,12 @@ service cloud.firestore {
       allow create: if isActive()
                     && id == request.auth.uid + '__' + request.resource.data.date + '__' + request.resource.data.startTime
                     && request.resource.data.uid == request.auth.uid
-                    && exists(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId))
-                    && get(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.uid == request.auth.uid;
+                    && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)) != null
+                    && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.uid == request.auth.uid;
       allow update: if isStaff();
       allow delete: if isStaff()
                     || (isActive()
-                        && get(/databases/$(database)/documents/bookings/$(resource.data.bookingId)).data.status
+                        && getAfter(/databases/$(database)/documents/bookings/$(resource.data.bookingId)).data.status
                            in ['cancelled', 'rejected']);
     }
 

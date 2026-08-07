@@ -25,7 +25,9 @@
    - 在後台左側導覽選單的最下方新增一個「線上預約 ↗」的外部連結按鈕，連結至前台的 `https://reservation-98067.web.app/#`，並使用 `target="_blank"` 另開新分頁；透過 CSS 為該按鈕設計了 dashed 分隔線，且同步相容桌機（border-top）與手機（border-left）版型。
    - 修正前台「預約規則」區塊下方到頁尾的留白：將 `#rules` 的 `margin-bottom` 縮減為 `var(--space-4)`，並將 `.site-footer` 的 `margin-top` 縮減為 `var(--space-4)`，使下方多餘留空剛好減半。
    - 調整後台側欄品牌區塊：新增 `.brand-text` 彈性縱排盒，取消「聯懋超綻」文字白色並改為金色調灰色 (`var(--ink-300)`)，並將「物業管理後台」改為白色 (`var(--paper-50)`)、Noto Serif TC 字體及放大 1.8 倍，同時對手機版做了頂欄標題寬度相容。
-   - **修正預約送出報權限錯誤的問題 (P0)**：原因為 `firestore.rules` 裡的 `matches()` 正規表示式不支援動態字串拼接，導致運行時解析錯誤回傳 `permission-denied`。我已重構為無正則的常規比對，改為在 `unitDailyUsage` 與 `unitWeeklyUsage` 寫入時補上 `facilityId`, `uid`, `date` 等對應欄位，並於 Rules 內使用 `id == ...` 與 `request.resource.data.uid == request.auth.uid` 進行無縫安全防護驗證。預約功能現已完全恢復正常。
+   - **修正預約與取消送出報權限錯誤的根本問題 (P0)**：
+     - *第一階段*：原 `firestore.rules` 裡的 `matches()` 正規表示式不支援動態字串拼接，導致計數器校驗 Runtime 錯誤。改為欄位比對。
+     - *第二階段*：修正 `slotLocks` 與 `unitSlotHolds` 寫入/刪除驗證時使用 `exists()` 與 `get()` 會在 Firestore 事務（Transaction）評估時報權限錯誤的 Bug。因為 `exists()` 與 `get()` 僅能查詢資料庫在該 transaction 執行「前」的已送出狀態，對同一個 transaction 內正在新建/更新的 booking 會因「尚未真正提交」而判定為 `false`。已將該部分規則重構為 **`getAfter()`**（取得 Transaction 執行「後」暫存快照數據），從而保證事務內跨集合關聯驗證的安全與順暢。預約與取消功能已在生產環境全面修復！
 6. **帳號列表支援行內資料編輯與密碼重設優化 (v=20260807k)**：
    - 將所有相對載入之靜態資源版本號戳記統一升級至 **`?v=20260807k`**。
    - 帳號列表中，原本為靜態文字的「門牌、姓名、電話」重構為行內輸入框（`<input type="text">`），並在 CSS 針對表格內輸入框設計了緊湊的 `.table-input` 樣式。
