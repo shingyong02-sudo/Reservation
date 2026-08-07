@@ -123,6 +123,7 @@ h1, h2, h3, h4 {
 
 main { max-width: var(--container-max); margin: 0 auto; padding: var(--space-6) var(--space-6) var(--space-8); }
 .section { margin-bottom: var(--space-8); }
+#rules { margin-bottom: var(--space-4); }
 
 .section-head {
   display: flex; align-items: baseline; gap: var(--space-3);
@@ -593,7 +594,7 @@ td code, .mono { font-family: var(--font-mono); font-size: var(--text-sm); color
   background: var(--surface-ink);
   color: var(--text-on-ink);
   padding: var(--space-6);
-  margin-top: var(--space-8);
+  margin-top: var(--space-4);
 }
 .footer-inner {
   max-width: var(--container-max); margin: 0 auto;
