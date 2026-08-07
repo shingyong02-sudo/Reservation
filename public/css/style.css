@@ -1,4 +1,4 @@
-@import url('./tokens.css?v=20260807b');
+@import url('./tokens.css?v=20260807c');
 
 /* ============================================================
    聯懋超綻預約系統 — 元件與版面
@@ -24,7 +24,9 @@ body {
 
 body.page-home,
 body:has(#viewHome:not(.hidden)) {
-  background-image: linear-gradient(rgba(246, 240, 228, 0.90), rgba(246, 240, 228, 0.90)), url('../images/home-bg.png');
+  /* 底圖壓在 90% 不透明的遮罩底下，畫質需求極低：
+     1920x1080 WebP 81KB，取代原本 6MB 的 2730x1536 PNG */
+  background-image: linear-gradient(rgba(246, 240, 228, 0.90), rgba(246, 240, 228, 0.90)), url('../images/home-bg.webp');
   background-size: cover;
   background-position: center;
   background-attachment: fixed;
