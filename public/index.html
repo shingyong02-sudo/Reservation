@@ -11,11 +11,11 @@
 <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
 <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
 <link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin>
-<link rel="modulepreload" href="js/app.js?v=20260807c">
-<link rel="modulepreload" href="js/firebase-config.js?v=20260807c">
-<link rel="modulepreload" href="js/shared.js?v=20260807c">
-<link rel="modulepreload" href="js/auth.js?v=20260807c">
-<link rel="stylesheet" href="css/style.css?v=20260807c">
+<link rel="modulepreload" href="js/app.js?v=20260807d">
+<link rel="modulepreload" href="js/firebase-config.js?v=20260807d">
+<link rel="modulepreload" href="js/shared.js?v=20260807d">
+<link rel="modulepreload" href="js/auth.js?v=20260807d">
+<link rel="stylesheet" href="css/style.css?v=20260807d">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='3' fill='%239e3b2e'/><text x='16' y='24' font-size='22' text-anchor='middle' fill='%23fbf8f1' font-family='serif'>懋</text></svg>">
 </head>
 <body>
@@ -65,6 +65,15 @@
     <div class="hero">
       <div>
         <div class="overline">聯懋超綻管理委員會</div>
+        <div class="greet">
+          <span class="greet-date" id="greetDate"></span>
+          <span class="greet-hi" id="greetHi">住戶您好</span>
+          <span class="greet-weather hidden" id="greetWeather">
+            <span class="wx-icon" id="wxIcon" aria-hidden="true"></span>
+            <span class="wx-text" id="wxText"></span>
+            <span class="wx-temp" id="wxTemp"></span>
+          </span>
+        </div>
         <h1>公共設施線上預約</h1>
         <p class="lead">六大公共場地開放住戶線上預約。即時查看各時段狀態，完成預約後可於「我的預約」查詢或取消。</p>
         <div class="hero-actions">
@@ -152,6 +161,6 @@
   </div>
 </footer>
 
-<script type="module" src="js/app.js?v=20260807c"></script>
+<script type="module" src="js/app.js?v=20260807d"></script>
 </body>
 </html>

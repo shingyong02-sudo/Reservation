@@ -1,4 +1,4 @@
-@import url('./tokens.css?v=20260807c');
+@import url('./tokens.css?v=20260807d');
 
 /* ============================================================
    聯懋超綻預約系統 — 元件與版面
@@ -181,6 +181,22 @@ main { max-width: var(--container-max); margin: 0 auto; padding: var(--space-6) 
   margin: 0 0 var(--space-5);
 }
 .hero-actions { display: flex; gap: var(--space-3); flex-wrap: wrap; }
+
+/* 問候列：日期 ・ 住戶姓名 ・ 花蓮市天氣 */
+.greet {
+  display: flex; align-items: center; flex-wrap: wrap;
+  /* 不用 ::before 放「・」分隔符：窄螢幕換行時它會掉到行首變成孤立符號。
+     改用間距＋字色/字重區分三個區塊，任何寬度下都成立 */
+  gap: var(--space-2) var(--space-4);
+  margin-top: var(--space-3);
+  font-size: var(--text-sm);
+}
+.greet-date { color: var(--ink-500); }
+.greet-hi { color: var(--ink-900); font-weight: var(--weight-semibold); }
+.greet-weather { display: inline-flex; align-items: baseline; gap: var(--space-2); color: var(--ink-600); }
+/* 用 U+FE0E 強制文字樣式的氣象符號，比彩色 emoji 更貼近明體＋茶金的調性 */
+.wx-icon { font-size: var(--text-base); color: var(--gold-700); }
+.wx-temp { font-family: var(--font-serif); font-weight: var(--weight-bold); color: var(--ink-900); }
 
 /* 規格清單：左標籤右值，中間點線 */
 .spec-list { display: flex; flex-direction: column; gap: var(--space-3); font-size: var(--text-sm); margin: 0; }

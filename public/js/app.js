@@ -1,4 +1,4 @@
-import { db, auth } from "./firebase-config.js?v=20260807c";
+import { db, auth } from "./firebase-config.js?v=20260807d";
 import {
   collection, doc, getDoc, getDocs, query, where, orderBy, limit,
   runTransaction, updateDoc, setDoc, deleteDoc, serverTimestamp,
@@ -8,8 +8,8 @@ import {
   COMMUNITY, generateQueryCode, todayStr, addDays, isoWeekday, weekStartOf,
   slotLockId, escapeHtml, fmtStatus, fmtDateHuman, fmtDateFull, fmtSlot,
   friendlyError, WEEKDAY_LABEL,
-} from "./shared.js?v=20260807c";
-import { watchAuth, login, logout, writeLog, canEnterAdmin } from "./auth.js?v=20260807c";
+} from "./shared.js?v=20260807d";
+import { watchAuth, login, logout, writeLog, canEnterAdmin } from "./auth.js?v=20260807d";
 
 const $ = (id) => document.getElementById(id);
 
@@ -117,6 +117,93 @@ async function doLogin() {
   }
 }
 
+/* ============================================================
+   問候列（日期／姓名／花蓮市天氣）
+   ============================================================ */
+
+// 花蓮市。座標寫死，不用瀏覽器定位——Permissions-Policy 已停用 geolocation，
+// 且社區位置固定，問住戶要定位權限沒有意義。
+const WEATHER = {
+  lat: 23.9769,
+  lon: 121.6044,
+  cacheKey: "wx-hualien",
+  cacheMinutes: 30,
+};
+
+// WMO weather code → 中文說明與符號。
+// 符號一律加 U+FE0E（文字表示選擇器），避免被渲染成彩色 emoji。
+const WMO = [
+  [[0], "晴天", "☀︎"],
+  [[1], "晴時多雲", "☀︎"],
+  [[2], "多雲", "☁︎"],
+  [[3], "陰天", "☁︎"],
+  [[45, 48], "有霧", "☁︎"],
+  [[51, 53, 55, 56, 57], "毛毛雨", "☂︎"],
+  [[61, 63, 65, 66, 67], "雨天", "☂︎"],
+  [[71, 73, 75, 77, 85, 86], "下雪", "❄︎"],
+  [[80, 81, 82], "陣雨", "☂︎"],
+  [[95, 96, 99], "雷雨", "⚡︎"],
+];
+
+function describeWeather(code) {
+  const hit = WMO.find(([codes]) => codes.includes(code));
+  return hit ? { text: hit[1], icon: hit[2] } : { text: "—", icon: "☁︎" };
+}
+
+function renderGreeting(profile) {
+  const today = todayStr();
+  const [, m, d] = today.split("-");
+  $("greetDate").textContent =
+    `星期${WEEKDAY_LABEL[isoWeekday(today) - 1]}・${Number(m)} 月 ${Number(d)} 日`;
+  const name = (profile?.name || "").trim();
+  $("greetHi").textContent = name ? `${name} 您好` : "住戶您好";
+}
+
+async function loadWeather() {
+  const box = $("greetWeather");
+  try {
+    const cached = readWeatherCache();
+    const wx = cached || await fetchWeather();
+    const { text, icon } = describeWeather(wx.code);
+    $("wxIcon").textContent = icon;
+    $("wxText").textContent = text;
+    $("wxTemp").textContent = `${Math.round(wx.temp)}°`;
+    box.title = `花蓮市 ${text} ${Math.round(wx.temp)}°C`;
+    box.classList.remove("hidden");
+  } catch {
+    // 天氣只是附加資訊，抓不到就整塊不顯示，不要拿錯誤訊息打擾住戶
+    box.classList.add("hidden");
+  }
+}
+
+function readWeatherCache() {
+  try {
+    const raw = sessionStorage.getItem(WEATHER.cacheKey);
+    if (!raw) return null;
+    const c = JSON.parse(raw);
+    if (Date.now() - c.at > WEATHER.cacheMinutes * 60 * 1000) return null;
+    return c;
+  } catch { return null; }
+}
+
+async function fetchWeather() {
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${WEATHER.lat}`
+    + `&longitude=${WEATHER.lon}&current=temperature_2m,weather_code&timezone=Asia%2FTaipei`;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 6000);
+  try {
+    const res = await fetch(url, { signal: ctrl.signal });
+    if (!res.ok) throw new Error(`weather ${res.status}`);
+    const j = await res.json();
+    const wx = { temp: j.current.temperature_2m, code: j.current.weather_code, at: Date.now() };
+    if (typeof wx.temp !== "number" || typeof wx.code !== "number") throw new Error("weather shape");
+    try { sessionStorage.setItem(WEATHER.cacheKey, JSON.stringify(wx)); } catch { /* 無痕模式會擋，忽略 */ }
+    return wx;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 watchAuth(({ user, profile }) => {
   me = profile;
   if (!user || !profile) {
@@ -137,6 +224,8 @@ watchAuth(({ user, profile }) => {
 
   navigate("home", {}, false);
   history.replaceState({ view: "home" }, "", "#");
+  renderGreeting(profile);
+  loadWeather();
   loadFacilities();
   loadNotices();
   renderSteps();
